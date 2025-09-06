@@ -20,19 +20,34 @@ final dioProvider = Provider<Dio>((ref) {
   dio.interceptors.add(InterceptorsWrapper(
     onRequest: (options, handler) {
       final token = ref.read(authTokenProvider);
+      final orgId = ref.read(organizationProvider);
       if (token != null) {
         options.headers['Authorization'] = 'Bearer $token';
+      }
+      if (orgId != null) {
+        options.headers['organization_id'] = orgId.toString();
       }
       return handler.next(options);
     },
     onError: (DioException e, handler) {
       // Handle 401 (maybe trigger logout)
       if (e.response?.statusCode == 401) {
-        ref.read(authStateProvider.notifier).logout();
+        ref.read(authProvider.notifier).logout();
       }
       return handler.next(e);
     },
   ));
+  // Add logging interceptor in debug mode
+  assert(() {
+    dio.interceptors.add(LogInterceptor(
+      request: true,
+      requestBody: true,
+      responseBody: true,
+      error: true,
+      logPrint: (obj) => print(obj),
+    ));
+    return true;
+  }());
 
   return dio;
 });

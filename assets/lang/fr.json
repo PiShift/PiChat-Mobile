@@ -1,0 +1,13 @@
+{
+  "app_name": "PiChat",
+  "auth": {
+    "login": "Login",
+    "email": "Email",
+    "password": "Password",
+    "welcome": "Welcome back, {name}"
+  },
+  "errors": {
+    "network": "No internet connection",
+    "unauthorized": "Session expired, please log in again"
+  }
+}
