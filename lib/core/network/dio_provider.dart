@@ -1,5 +1,6 @@
 // lib/core/network/dio_provider.dart
 import 'package:dio/dio.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/constants/app_constants.dart';
 import 'package:pichat/core/state/auth_state.dart';
@@ -30,6 +31,8 @@ final dioProvider = Provider<Dio>((ref) {
       return handler.next(options);
     },
     onError: (DioException e, handler) {
+      final status = e.response?.statusCode;
+      // debugPrint('DIO onError: status=$status url=${e.requestOptions.uri}');
       // Handle 401 (maybe trigger logout)
       if (e.response?.statusCode == 401) {
         ref.read(authProvider.notifier).logout();

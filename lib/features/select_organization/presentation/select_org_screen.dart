@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/dio_provider.dart';
 import 'package:pichat/core/router/app_router.dart';
 import 'package:pichat/data/repositories/auth_repository.dart';
+import 'package:pichat/features/auth/application/auth_controller.dart';
 
 class SelectOrganizationScreen extends ConsumerStatefulWidget {
   const SelectOrganizationScreen({super.key});
@@ -24,9 +25,9 @@ class _SelectOrganizationScreenState extends ConsumerState<SelectOrganizationScr
 
   Future<void> fetchOrganizations() async {
     final dio = ref.read(dioProvider);
-    final response = await dio.get('/user/organizations');
+    final response = await dio.get('/organizations');
     setState(() {
-      orgs = List<Map<String, dynamic>>.from(response.data);
+      orgs = List<Map<String, dynamic>>.from(response.data['organizations']);
       loading = false;
     });
   }
@@ -44,10 +45,9 @@ class _SelectOrganizationScreenState extends ConsumerState<SelectOrganizationScr
         itemBuilder: (context, index) {
           final org = orgs[index];
           return ListTile(
-            title: Text(org['name']),
+            title: Text(org['organization']['name']),
             onTap: () async {
-              final repo = AuthRepository(ref.read(dioProvider), ref as Ref<Object?>);
-              await repo.selectOrganization(org['id']);
+              await ref.read(authRepositoryProvider).selectOrganization(org['organization']['id'] as int);
               router.go('/home/chats');
             },
           );

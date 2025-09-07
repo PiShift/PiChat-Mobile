@@ -1,8 +1,11 @@
 // lib/core/state/auth_state.dart
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_x/flutter_secure_storage_x.dart';
+import 'package:pichat/core/constants/app_constants.dart';
 
 final authTokenProvider = StateProvider<String?>((ref) => null);
+final tfaTokenProvider = StateNotifierProvider<TfaNotifier, String?>((ref) => TfaNotifier());
 final userProvider = StateProvider<Map<String, dynamic>?>((ref) => null);
 final organizationProvider = StateProvider<int?>((ref) => null);
 
@@ -57,14 +60,25 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   Future<void> login(String token, Map<String, dynamic> user) async {
     state = state.copyWith(token: token, user: user);
     await secureStorage.write(key: 'token', value: token);
+    await secureStorage.write(key: AppConstants.kLastEmailKey, value: user['email'] as String?);
   }
 
   Future<void> logout() async {
     state = const AuthState();
-    await secureStorage.deleteAll();
+    await secureStorage.delete(key: 'token');
+    await secureStorage.delete(key: 'organization_id');
   }
 }
 
 final authProvider = StateNotifierProvider<AuthStateNotifier, AuthState>((ref) {
   return AuthStateNotifier();
 });
+
+class TfaNotifier extends StateNotifier<String?> {
+  TfaNotifier(): super(null);
+
+  void setToken(String? v) {
+    debugPrint('TfaNotifier.setToken: $v');
+    state = v;
+  }
+}

@@ -2,7 +2,9 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage_x/flutter_secure_storage_x.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pichat/core/constants/app_constants.dart';
 import 'package:pichat/core/router/app_router.dart';
 import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/core/theme/app_theme.dart';
@@ -22,10 +24,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool revealPassword = false;
+  bool loading = false;
 
   @override
   void initState() {
     super.initState();
+    _loadLastEmail();
+  }
+
+  Future<void> _loadLastEmail() async {
+    final storage = const FlutterSecureStorage();
+    final lastEmail = await storage.read(key: AppConstants.kLastEmailKey);
+    print("Last email from storage: $lastEmail");
+    if (lastEmail != null && lastEmail.isNotEmpty) {
+      _emailCtrl.text = lastEmail; // prefill email field
+    }
   }
 
   @override
@@ -36,6 +49,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // Listen to login state changes
     ref.listen<AsyncValue<void>>(authControllerProvider, (prev, next) {
       next.whenOrNull(
+        // data: (_) {
+        //   final tfaToken = ref.read(tfaTokenProvider);
+        //   final orgId = ref.read(organizationProvider);
+        //
+        //   if (tfaToken != null) {
+        //     print("Redirecting to TFA screen, token=$tfaToken");
+        //     ref.read(appRouterProvider).go('/tfa');
+        //   } else if (orgId != null) {
+        //     ref.read(appRouterProvider).go('/home/chats');
+        //   } else if (ref.read(authTokenProvider) != null) {
+        //     ref.read(appRouterProvider).go('/select_org');
+        //   }
+        // },
         error: (e, st) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(e.toString())),
@@ -43,6 +69,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         },
       );
     });
+
+    // Navigate after successful login or TFA
+    // WidgetsBinding.instance.addPostFrameCallback((_) {
+    //   final tfaToken = ref.read(tfaTokenProvider);
+    //   final orgId = ref.read(organizationProvider);
+    //
+    //   if (tfaToken != null) {
+    //   print("AuthState changed: isAuthenticated=${authState.isAuthenticated}, orgId=$orgId, tfaToken=$tfaToken");
+    //     context.go('/tfa'); // go to TFA screen
+    //   } else if (!loading && orgId != null) {
+    //     context.go('/home/chats');
+    //   } else if (!loading && orgId == null && ref.read(authTokenProvider) != null) {
+    //     context.go('/select_org');
+    //   }
+    // });
 
 
     return Scaffold(
@@ -97,11 +138,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 24),
                 BaseButton(
-                  onTap: () async {
+                  onTap: loading ? null : () async {
                     if (_formKey.currentState!.validate()) {
-                      ref
+                      await ref
                           .read(authControllerProvider.notifier)
                           .login(_emailCtrl.text, _passwordCtrl.text);
+
+                      setState(() => loading = false);
                     }
                   },
                   text: 'Login'.tr(),

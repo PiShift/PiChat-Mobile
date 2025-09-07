@@ -41,6 +41,11 @@ dependencies:
   icons_launcher: ^3.0.2
   google_fonts: ^6.3.1
   flutter_secure_storage_x: ^11.3.0
+  otp_pin_field: ^1.4.1
+  drift: ^2.28.1
+  sqlite3_flutter_libs: ^0.5.39
+  path_provider: ^2.1.5
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:

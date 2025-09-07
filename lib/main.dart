@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_x/flutter_secure_storage_x.dart';
+import 'package:pichat/core/network/provider_logger.dart';
 
 import 'core/router/app_router.dart';
 import 'core/state/auth_state.dart';
@@ -11,6 +12,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
 
+  // final container = ProviderContainer(observers: [ProviderLogger()]);
   final container = ProviderContainer();
   final storage = const FlutterSecureStorage();
 
@@ -32,7 +34,7 @@ Future<void> main() async {
       fallbackLocale: const Locale('en'),
       child: UncontrolledProviderScope(
         container: container,
-          child: PiChatApp()
+        child: PiChatApp()
       ),
     ),
   );
