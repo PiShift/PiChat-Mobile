@@ -16,7 +16,7 @@ import 'package:async/async.dart';
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
   final token = ref.watch(authTokenProvider);
-  final orgId = ref.watch(organizationProvider);
+  final orgId = ref.watch(organizationProvider)?.id;
   final tfaToken = ref.watch(tfaTokenProvider);
 
   // create a StreamListenable that watches the providers' streams
@@ -24,6 +24,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ref.watch(authTokenProvider.notifier).stream,
     ref.watch(organizationProvider.notifier).stream,
     ref.watch(tfaTokenProvider.notifier).stream,
+    ref.watch(userProvider.notifier).stream,
   ]);
 
   // make sure it is disposed when provider is disposed

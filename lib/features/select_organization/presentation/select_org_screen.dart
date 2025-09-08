@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/dio_provider.dart';
 import 'package:pichat/core/router/app_router.dart';
+import 'package:pichat/core/state/auth_state.dart';
+import 'package:pichat/data/models/organization_model.dart';
 import 'package:pichat/data/repositories/auth_repository.dart';
 import 'package:pichat/features/auth/application/auth_controller.dart';
 
@@ -14,7 +16,7 @@ class SelectOrganizationScreen extends ConsumerStatefulWidget {
 }
 
 class _SelectOrganizationScreenState extends ConsumerState<SelectOrganizationScreen> {
-  List<Map<String, dynamic>> orgs = [];
+  List<Map<String, dynamic>> teams = [];
   bool loading = true;
 
   @override
@@ -25,11 +27,16 @@ class _SelectOrganizationScreenState extends ConsumerState<SelectOrganizationScr
 
   Future<void> fetchOrganizations() async {
     final dio = ref.read(dioProvider);
+    final userId = ref.read(userIdProvider);
     final response = await dio.get('/organizations');
     setState(() {
-      orgs = List<Map<String, dynamic>>.from(response.data['organizations']);
+      teams = List<Map<String, dynamic>>.from(response.data['organizations']);
       loading = false;
     });
+    await ref.read(organizationProvider.notifier).insertOrganizations(
+      teams.map((org) => Organization.fromJson(org['organization'] as Map<String, dynamic>)).toList(),
+      userId!,
+    );
   }
 
   @override
@@ -41,13 +48,13 @@ class _SelectOrganizationScreenState extends ConsumerState<SelectOrganizationScr
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : ListView.builder(
-        itemCount: orgs.length,
+        itemCount: teams.length,
         itemBuilder: (context, index) {
-          final org = orgs[index];
+          final org = Organization.fromJson(teams[index]['organization'] as Map<String, dynamic>);
           return ListTile(
-            title: Text(org['organization']['name']),
+            title: Text(org.name),
             onTap: () async {
-              await ref.read(authRepositoryProvider).selectOrganization(org['organization']['id'] as int);
+              await ref.read(authRepositoryProvider).selectOrganization(org);
               router.go('/home/chats');
             },
           );

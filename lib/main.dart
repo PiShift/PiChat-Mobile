@@ -12,19 +12,30 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
 
-  // final container = ProviderContainer(observers: [ProviderLogger()]);
-  final container = ProviderContainer();
+  final container = ProviderContainer(observers: [ProviderLogger()]);
+  // final container = ProviderContainer();
   final storage = const FlutterSecureStorage();
 
   // load persisted values BEFORE app starts
   final token = await storage.read(key: 'token');
-  final org = await storage.read(key: 'organization_id');
+  final orgId = await storage.read(key: 'organization_id');
+  final userId = await storage.read(key: 'user_id');
 
   if (token != null && token.isNotEmpty) {
     container.read(authTokenProvider.notifier).state = token;
   }
-  if (org != null && org.isNotEmpty) {
-    container.read(organizationProvider.notifier).state = int.tryParse(org);
+  if (userId != null && userId.isNotEmpty) {
+    final db = container.read(databaseProvider);
+    container.read(userIdProvider.notifier).state = int.parse(userId);
+    container.read(userProvider.notifier).loadUser(int.parse(userId));
+
+    if (orgId != null && orgId.isNotEmpty) {
+      final org = await db.getOrganizationById(int.parse(orgId));
+      if(org != null) {
+        container.read(organizationProvider.notifier).setOrganization(org, int.parse(userId));
+        await container.read(authProvider.notifier).setOrganization(org.id);
+      }
+    }
   }
 
   runApp(

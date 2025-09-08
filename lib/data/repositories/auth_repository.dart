@@ -4,6 +4,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/dio_provider.dart';
 import 'package:pichat/core/state/auth_state.dart';
+import 'package:pichat/data/models/organization_model.dart';
+import 'package:pichat/data/models/user_model.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepository(ref.watch(dioProvider), ref);
@@ -30,31 +32,39 @@ class AuthRepository {
 
     final token = response.data['token'] as String;
     final user = response.data['user'] as Map<String, dynamic>;
-    final currentOrg = response.data['current_organization'] as int?;
+    final currentOrg = response.data['current_organization'] as Map<String, dynamic>?;
 
     // Save token and user globally
     _ref.read(authTokenProvider.notifier).state = token;
-    await _ref.read(authProvider.notifier).login(token, user);
-    _ref.read(userProvider.notifier).state = user;
+    _ref.read(userIdProvider.notifier).state = user['id'] as int;
+    final userModel = User.fromJson(user);
+    await _ref.read(authProvider.notifier).login(token, userModel);
+    _ref.read(userProvider.notifier).setUser(userModel);
 
     // Save organization if only one exists
     if (currentOrg != null) {
-      _ref.read(organizationProvider.notifier).state = currentOrg;
-      await _ref.read(authProvider.notifier).setOrganization(currentOrg);
+      print('AuthRepository.login() - setting current organization: ${currentOrg['name']}');
+      final orgModel = Organization.fromJson(currentOrg);
+      print(orgModel.id);
+      await _ref.read(authProvider.notifier).setOrganization(orgModel.id);
+      await _ref.read(organizationProvider.notifier).setOrganization(orgModel, userModel.id);
     }
   }
 
   Future<void> logout() async {
+    final response = await _dio.post('/auth/logout');
     // Clear all auth-related state
     await _ref.read(authProvider.notifier).logout();
     _ref.read(authTokenProvider.notifier).state = null;
-    _ref.read(userProvider.notifier).state = null;
-    _ref.read(organizationProvider.notifier).state = null;
+    _ref.read(userIdProvider.notifier).state = null;
+    _ref.read(authProvider.notifier).clear();
   }
 
-  Future<void> selectOrganization(int orgId) async {
-    await _ref.read(authProvider.notifier).setOrganization(orgId);
-    _ref.read(organizationProvider.notifier).state = orgId;
+  Future<void> selectOrganization(Organization orgModel) async {
+    // final orgModel = Organization.fromJson(organization);
+    await _ref.read(authProvider.notifier).setOrganization(orgModel.id);
+    final userId = _ref.read(userIdProvider);
+    _ref.read(organizationProvider.notifier).setOrganization(orgModel, userId!);
   }
 
   Future<void> verifyTfa(String tfaToken, String code) async {
@@ -70,22 +80,25 @@ class AuthRepository {
       // Save token and user globally like normal login
       final token = data['token'] as String;
       final user = data['user'] as Map<String, dynamic>;
-      final currentOrg = data['current_organization'] as int?;
+      final currentOrg = data['current_organization'] as Map<String, dynamic>?;
 
       // Clear temporary TFA token
       _ref.read(tfaTokenProvider.notifier).setToken(null);
 
       _ref.read(authTokenProvider.notifier).state = token;
-      await _ref.read(authProvider.notifier).login(token, user);
-      _ref.read(userProvider.notifier).state = user;
+      _ref.read(userIdProvider.notifier).state = user['id'] as int;
+      final userModel = User.fromJson(user);
+      await _ref.read(authProvider.notifier).login(token, userModel);
+      _ref.read(userProvider.notifier).setUser(userModel);
 
       if (currentOrg != null) {
-        _ref.read(organizationProvider.notifier).state = currentOrg;
-        await _ref.read(authProvider.notifier).setOrganization(currentOrg);
+        final orgModel = Organization.fromJson(currentOrg);
+        _ref.read(organizationProvider.notifier).setOrganization(orgModel, userModel.id);
+        await _ref.read(authProvider.notifier).setOrganization(orgModel.id);
       }
     } catch (e, st) {
-      debugPrint('REPO.verifyTfa() caught error: $e');
-      debugPrint('REPO.verifyTfa() tfaProvider currently=${_ref.read(tfaTokenProvider)}');
+      // debugPrint('REPO.verifyTfa() caught error: $e');
+      // debugPrint('REPO.verifyTfa() tfaProvider currently=${_ref.read(tfaTokenProvider)}');
       rethrow;
     }
   }

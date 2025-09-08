@@ -7,6 +7,8 @@ class AppColors {
   static const secondary = Color(0xFF000000);
   static const error = Color(0xFFD32F2F);
   static const background = Colors.white;
+  static const greyBorder = Color(0xFFE0E0E0);
+  static const textDark = Color(0xFF2E2E2E);
 }
 
 final appThemeProvider = Provider<ThemeData>((ref) {
