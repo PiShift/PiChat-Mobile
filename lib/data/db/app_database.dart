@@ -4,7 +4,10 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:pichat/data/models/chat_log_model.dart';
+import 'package:pichat/data/models/chat_media_model.dart';
 import 'package:pichat/data/models/chat_model.dart';
+import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/data/models/organization_model.dart';
 import 'package:pichat/data/models/user_model.dart';
 
@@ -12,11 +15,12 @@ import 'package:pichat/data/models/user_model.dart';
 import 'tables/user_table.dart';
 import 'tables/organization_table.dart';
 import 'tables/chat_table.dart';
+import 'tables/contact_table.dart';
 
 part 'app_database.g.dart';
 
 @DriftDatabase(
-  tables: [Users, Organizations, UserOrganizations, Chats],
+  tables: [Users, Organizations, UserOrganizations, Chats, Contacts, Medias, ChatLogs],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
@@ -90,12 +94,12 @@ class AppDatabase extends _$AppDatabase {
   Future<int> insertChat(Chat chat) {
     return into(chats).insert(
       ChatsCompanion.insert(
-        id: Value(chat.id!),
+        id: Value(chat.id),
         orgId: chat.orgId,
         uuid: chat.uuid,
         wamId: Value(chat.wamId),
         contactId: chat.contactId,
-        userId: chat.userId,
+        userId: Value(chat.userId),
         type: chat.type,
         metadata: Value(jsonEncode(chat.metadata ?? {})),
         mediaId: Value(chat.mediaId),
@@ -154,6 +158,61 @@ class AppDatabase extends _$AppDatabase {
       UserOrganizationsCompanion.insert(userId: userId, orgId: orgId),
       mode: InsertMode.insertOrReplace, // avoid duplicates
     );
+  }
+
+  /// -----------------------
+  /// CONTACTS
+  /// -----------------------
+  Future<int> insertContact(Contact contact) {
+    return into(contacts).insert(
+      contact.toCompanion(),
+      mode: InsertMode.insertOrReplace,
+    );
+  }
+
+  Future<Contact?> getContactWithLastChat(int id) async {
+    final row = await (select(contacts)..where((c) => c.id.equals(id)))
+        .getSingleOrNull();
+    if (row == null) return null;
+
+    final contact = Contact.fromDb(row);
+
+    if (contact.lastChatId != null) {
+      final chatRow = await (select(chats)..where((c) => c.id.equals(contact.lastChatId!)))
+          .getSingleOrNull();
+      if (chatRow != null) {
+        final chat = await getChatWithRelations(chatRow.id);
+        return contact.copyWith(lastChat: chat);
+      }
+    }
+    return contact;
+  }
+
+  /// -----------------------
+  /// CHATS
+  /// -----------------------
+  Future<Chat?> getChatWithRelations(int chatId) async {
+    final chatRow = await (select(chats)..where((c) => c.id.equals(chatId)))
+        .getSingleOrNull();
+    if (chatRow == null) return null;
+
+    final chat = Chat.fromDb(chatRow);
+
+    // Media relation
+    ChatMedia? media;
+    if (chat.mediaId != null) {
+      final mediaRow = await (select(medias)..where((m) => m.id.equals(chat.mediaId!)))
+          .getSingleOrNull();
+      if (mediaRow != null) {
+        media = ChatMedia.fromDb(mediaRow);
+      }
+    }
+
+    // Logs relation
+    final logsRows = await (select(chatLogs)..where((l) => l.chatId.equals(chatId))).get();
+    final logs = logsRows.map((row) => ChatLog.fromDb(row)).toList();
+
+    return chat.copyWith(media: media, logs: logs);
   }
 
 

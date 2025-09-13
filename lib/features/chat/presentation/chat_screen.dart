@@ -7,6 +7,8 @@ import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/models/organization_model.dart';
 import 'package:pichat/data/repositories/auth_repository.dart';
+import 'package:pichat/features/chat/application/main_controller.dart';
+import 'package:pichat/features/chat/widgets/contactItem.dart';
 import 'package:pichat/shared/base/BaseButton.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
@@ -29,6 +31,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   Widget build(BuildContext context) {
     final org = ref.watch(organizationProvider);
     final userOrgsAsync = ref.watch(userOrgsProvider);
+    final contacts = ref.watch(mainDataProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -109,8 +112,19 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                       color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Center(
-                      child: Text('Chat list goes here'),
+                    child: contacts.isEmpty ? const Center(
+                      child: CircularProgressIndicator()
+                    ) : RefreshIndicator(
+                      onRefresh: () async {
+                        await ref.read(mainDataProvider.notifier).refreshContacts();
+                      },
+                      child: ListView.builder(
+                        itemCount: contacts.length,
+                        itemBuilder: (context, index) {
+                          final contact = contacts[index];
+                          return ContactItem(contact: contact);
+                        },
+                      ),
                     ),
                   ),
                 ],

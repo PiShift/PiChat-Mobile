@@ -27,6 +27,15 @@ final dioProvider = Provider<Dio>((ref) {
       }
       if (orgId != null) {
         options.headers['organization_id'] = orgId.toString();
+        // For GET/DELETE requests, append to queryParameters
+        options.queryParameters['organization_id'] = orgId.id;
+
+        // For POST/PUT/PATCH, optionally include in body
+        if (options.method != 'GET' && options.method != 'DELETE') {
+          if (options.data is Map<String, dynamic>) {
+            options.data['organization_id'] = orgId.id;
+          }
+        }
       }
       return handler.next(options);
     },

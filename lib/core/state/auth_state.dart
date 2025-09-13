@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_x/flutter_secure_storage_x.dart';
 import 'package:pichat/core/constants/app_constants.dart';
 import 'package:pichat/data/db/app_database.dart';
+import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/data/models/organization_model.dart';
 import 'package:pichat/data/models/user_model.dart';
@@ -14,23 +15,23 @@ import 'package:pichat/data/services/user_notifier.dart';
 final authTokenProvider = StateProvider<String?>((ref) => null);
 final userIdProvider = StateProvider<int?>((ref) => null);
 final tfaTokenProvider = StateNotifierProvider<TfaNotifier, String?>((ref) => TfaNotifier());
-final databaseProvider = Provider<AppDatabase>((ref) => AppDatabase());
+// final databaseProvider = Provider<AppDatabase>((ref) => AppDatabase());
 
 final chatStreamProvider = StreamProvider.family<List<Chat>, int>((ref, orgId) {
-  final db = ref.watch(databaseProvider);
+  final db = ref.watch(appDatabaseProvider);
   return db.watchChatsForOrg(orgId);
 });
 
 final userProvider = StateNotifierProvider<UserNotifier, User?>(
-      (ref) => UserNotifier(ref.read(databaseProvider)),
+      (ref) => UserNotifier(ref.read(appDatabaseProvider)),
 );
 
 final organizationProvider = StateNotifierProvider<OrganizationNotifier, Organization?>(
-      (ref) => OrganizationNotifier(ref.read(databaseProvider)),
+      (ref) => OrganizationNotifier(ref.read(appDatabaseProvider)),
 );
 
 final userOrgsProvider = FutureProvider<List<Organization>>((ref) async {
-  final db = ref.watch(databaseProvider);
+  final db = ref.watch(appDatabaseProvider);
   final userId = ref.watch(userIdProvider);
   print("Fetching organizations for userId: $userId");
   if (userId == null) return [];

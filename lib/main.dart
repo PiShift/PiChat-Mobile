@@ -7,6 +7,7 @@ import 'package:pichat/core/network/provider_logger.dart';
 import 'core/router/app_router.dart';
 import 'core/state/auth_state.dart';
 import 'core/theme/app_theme.dart';
+import 'data/db/database_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +26,7 @@ Future<void> main() async {
     container.read(authTokenProvider.notifier).state = token;
   }
   if (userId != null && userId.isNotEmpty) {
-    final db = container.read(databaseProvider);
+    final db = container.read(appDatabaseProvider);
     container.read(userIdProvider.notifier).state = int.parse(userId);
     container.read(userProvider.notifier).loadUser(int.parse(userId));
 
