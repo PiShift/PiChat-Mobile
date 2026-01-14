@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
+import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/data/repositories/chat_repository.dart';
 import 'package:pichat/data/repositories/contact_repository.dart';
@@ -41,7 +42,6 @@ class MainDataController extends StateNotifier<List<Contact>> {
       // For each contact, load messages **from DB first** (instant)
       for (var contact in apiContacts) {
         final lastId = contact.lastChat!.id;
-        print("==== LastChat ID: $lastId");
         final newMessages = await _chatRepo.getMessages(contact.id, afterId: lastId, forceRefresh: true);
 
         if (newMessages.isNotEmpty) {
@@ -62,4 +62,36 @@ class MainDataController extends StateNotifier<List<Contact>> {
       print('Error refreshing contacts: $e');
     }
   }
+
+  void updateContactWithNewMessage(Chat chat) {
+    final List<Contact> updated = List.from(state);
+
+    final index = updated.indexWhere((c) => c.id == chat.contactId);
+    if (index != -1) {
+      final contact = updated[index];
+
+      // Only update if the new message is newer
+      if (contact.latestChatCreatedAt == null ||
+          chat.createdAt.isAfter(contact.latestChatCreatedAt!)) {
+        final newContact = contact.copyWith(
+          lastChatId: chat.id,
+          lastChat: chat,
+          latestChatCreatedAt: chat.createdAt,
+          unreadCount: (contact.unreadCount ?? 0) + (chat.isRead ? 0 : 1),
+        );
+
+        // Move to top only if not already at top
+        if (index != 0) {
+          updated.removeAt(index);
+          updated.insert(0, newContact);
+        } else {
+          updated[0] = newContact;
+        }
+
+        state = updated;
+      }
+    }
+  }
+
+
 }

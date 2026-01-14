@@ -11,7 +11,7 @@ class ChatMedia {
   final String? metaUrl;
   final String? location;
   final String? type;
-  final int? size;
+  final String? size;
   final DateTime? createdAt;
 
   ChatMedia({

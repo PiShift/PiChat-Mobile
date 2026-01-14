@@ -200,6 +200,7 @@ class AppDatabase extends _$AppDatabase {
 
     // Media relation
     ChatMedia? media;
+    print("====== Chat mediaId: ${chat.mediaId}");
     if (chat.mediaId != null) {
       final mediaRow = await (select(medias)..where((m) => m.id.equals(chat.mediaId!)))
           .getSingleOrNull();
@@ -215,7 +216,6 @@ class AppDatabase extends _$AppDatabase {
     return chat.copyWith(media: media, logs: logs);
   }
 
-
 }
 
 LazyDatabase _openConnection() {
@@ -224,4 +224,15 @@ LazyDatabase _openConnection() {
     final file = File(p.join(dbFolder.path, 'pichat.db'));
     return NativeDatabase(file);
   });
+}
+
+extension MediasUpdate on AppDatabase {
+  Future<int> updateMediaPath(String mediaId, String localPath) async {
+    return (update(medias)..where((m) => m.id.equals(int.parse(mediaId)))).write(
+      MediasCompanion(
+        path: Value(localPath),
+        location: const Value('local'), // Update location to local
+      ),
+    );
+  }
 }

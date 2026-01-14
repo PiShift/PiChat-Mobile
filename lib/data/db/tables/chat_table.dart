@@ -31,7 +31,7 @@ class Medias extends Table {
   TextColumn get metaUrl => text().nullable()();
   TextColumn get location => text().nullable()();
   TextColumn get type => text().nullable()();
-  IntColumn get size => integer().nullable()();
+  TextColumn get size => text().nullable()();
   DateTimeColumn get createdAt => dateTime().nullable()();
 
   @override

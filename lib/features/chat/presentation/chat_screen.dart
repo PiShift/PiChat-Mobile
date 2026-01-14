@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pichat/core/router/app_router.dart';
 import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/core/theme/app_theme.dart';
@@ -122,7 +123,15 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                         itemCount: contacts.length,
                         itemBuilder: (context, index) {
                           final contact = contacts[index];
-                          return ContactItem(contact: contact);
+                          return InkWell(
+                            onTap: () {
+                              context.push(
+                                '/home/chats/detail',
+                                extra: contact, // pass full object
+                              );
+                            },
+                            child: ContactItem(contact: contact),
+                          );
                         },
                       ),
                     ),

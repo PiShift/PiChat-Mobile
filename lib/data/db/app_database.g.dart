@@ -2393,9 +2393,9 @@ class $MediasTable extends Medias with TableInfo<$MediasTable, MediaData> {
       type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _sizeMeta = const VerificationMeta('size');
   @override
-  late final GeneratedColumn<int> size = GeneratedColumn<int>(
+  late final GeneratedColumn<String> size = GeneratedColumn<String>(
       'size', aliasedName, true,
-      type: DriftSqlType.int, requiredDuringInsert: false);
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -2474,7 +2474,7 @@ class $MediasTable extends Medias with TableInfo<$MediasTable, MediaData> {
       type: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}type']),
       size: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}size']),
+          .read(DriftSqlType.string, data['${effectivePrefix}size']),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at']),
     );
@@ -2494,7 +2494,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
   final String? metaUrl;
   final String? location;
   final String? type;
-  final int? size;
+  final String? size;
   final DateTime? createdAt;
   const MediaData(
       {required this.id,
@@ -2529,7 +2529,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
       map['type'] = Variable<String>(type);
     }
     if (!nullToAbsent || size != null) {
-      map['size'] = Variable<int>(size);
+      map['size'] = Variable<String>(size);
     }
     if (!nullToAbsent || createdAt != null) {
       map['created_at'] = Variable<DateTime>(createdAt);
@@ -2570,7 +2570,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
       metaUrl: serializer.fromJson<String?>(json['metaUrl']),
       location: serializer.fromJson<String?>(json['location']),
       type: serializer.fromJson<String?>(json['type']),
-      size: serializer.fromJson<int?>(json['size']),
+      size: serializer.fromJson<String?>(json['size']),
       createdAt: serializer.fromJson<DateTime?>(json['createdAt']),
     );
   }
@@ -2585,7 +2585,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
       'metaUrl': serializer.toJson<String?>(metaUrl),
       'location': serializer.toJson<String?>(location),
       'type': serializer.toJson<String?>(type),
-      'size': serializer.toJson<int?>(size),
+      'size': serializer.toJson<String?>(size),
       'createdAt': serializer.toJson<DateTime?>(createdAt),
     };
   }
@@ -2598,7 +2598,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
           Value<String?> metaUrl = const Value.absent(),
           Value<String?> location = const Value.absent(),
           Value<String?> type = const Value.absent(),
-          Value<int?> size = const Value.absent(),
+          Value<String?> size = const Value.absent(),
           Value<DateTime?> createdAt = const Value.absent()}) =>
       MediaData(
         id: id ?? this.id,
@@ -2667,7 +2667,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
   final Value<String?> metaUrl;
   final Value<String?> location;
   final Value<String?> type;
-  final Value<int?> size;
+  final Value<String?> size;
   final Value<DateTime?> createdAt;
   const MediasCompanion({
     this.id = const Value.absent(),
@@ -2699,7 +2699,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
     Expression<String>? metaUrl,
     Expression<String>? location,
     Expression<String>? type,
-    Expression<int>? size,
+    Expression<String>? size,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
@@ -2723,7 +2723,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
       Value<String?>? metaUrl,
       Value<String?>? location,
       Value<String?>? type,
-      Value<int?>? size,
+      Value<String?>? size,
       Value<DateTime?>? createdAt}) {
     return MediasCompanion(
       id: id ?? this.id,
@@ -2763,7 +2763,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
       map['type'] = Variable<String>(type.value);
     }
     if (size.present) {
-      map['size'] = Variable<int>(size.value);
+      map['size'] = Variable<String>(size.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -4217,7 +4217,7 @@ typedef $$MediasTableCreateCompanionBuilder = MediasCompanion Function({
   Value<String?> metaUrl,
   Value<String?> location,
   Value<String?> type,
-  Value<int?> size,
+  Value<String?> size,
   Value<DateTime?> createdAt,
 });
 typedef $$MediasTableUpdateCompanionBuilder = MediasCompanion Function({
@@ -4228,7 +4228,7 @@ typedef $$MediasTableUpdateCompanionBuilder = MediasCompanion Function({
   Value<String?> metaUrl,
   Value<String?> location,
   Value<String?> type,
-  Value<int?> size,
+  Value<String?> size,
   Value<DateTime?> createdAt,
 });
 
@@ -4262,7 +4262,7 @@ class $$MediasTableFilterComposer
   ColumnFilters<String> get type => $composableBuilder(
       column: $table.type, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<int> get size => $composableBuilder(
+  ColumnFilters<String> get size => $composableBuilder(
       column: $table.size, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
@@ -4299,7 +4299,7 @@ class $$MediasTableOrderingComposer
   ColumnOrderings<String> get type => $composableBuilder(
       column: $table.type, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<int> get size => $composableBuilder(
+  ColumnOrderings<String> get size => $composableBuilder(
       column: $table.size, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
@@ -4336,7 +4336,7 @@ class $$MediasTableAnnotationComposer
   GeneratedColumn<String> get type =>
       $composableBuilder(column: $table.type, builder: (column) => column);
 
-  GeneratedColumn<int> get size =>
+  GeneratedColumn<String> get size =>
       $composableBuilder(column: $table.size, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
@@ -4373,7 +4373,7 @@ class $$MediasTableTableManager extends RootTableManager<
             Value<String?> metaUrl = const Value.absent(),
             Value<String?> location = const Value.absent(),
             Value<String?> type = const Value.absent(),
-            Value<int?> size = const Value.absent(),
+            Value<String?> size = const Value.absent(),
             Value<DateTime?> createdAt = const Value.absent(),
           }) =>
               MediasCompanion(
@@ -4395,7 +4395,7 @@ class $$MediasTableTableManager extends RootTableManager<
             Value<String?> metaUrl = const Value.absent(),
             Value<String?> location = const Value.absent(),
             Value<String?> type = const Value.absent(),
-            Value<int?> size = const Value.absent(),
+            Value<String?> size = const Value.absent(),
             Value<DateTime?> createdAt = const Value.absent(),
           }) =>
               MediasCompanion.insert(

@@ -47,5 +47,15 @@
 		<true/>
 		<key>UIStatusBarHidden</key>
 		<false/>
+        <key>NSPhotoLibraryUsageDescription</key>
+        <string>Access to photo library is required to save media files</string>
+        <key>NSAppleMusicUsageDescription</key>
+        <string>Access to media library is required to play audio files</string>
+        <key>UIBackgroundModes</key>
+        <array>
+            <string>audio</string>
+        </array>
+        <key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+        <true/>
 	</dict>
 </plist>

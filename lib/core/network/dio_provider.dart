@@ -26,7 +26,7 @@ final dioProvider = Provider<Dio>((ref) {
         options.headers['Authorization'] = 'Bearer $token';
       }
       if (orgId != null) {
-        options.headers['organization_id'] = orgId.toString();
+        options.headers['organization_id'] = orgId.id.toString();
         // For GET/DELETE requests, append to queryParameters
         options.queryParameters['organization_id'] = orgId.id;
 
@@ -41,7 +41,7 @@ final dioProvider = Provider<Dio>((ref) {
     },
     onError: (DioException e, handler) {
       final status = e.response?.statusCode;
-      // debugPrint('DIO onError: status=$status url=${e.requestOptions.uri}');
+      debugPrint('DIO onError: status=$status url=${e.requestOptions.uri}');
       // Handle 401 (maybe trigger logout)
       if (e.response?.statusCode == 401) {
         ref.read(authProvider.notifier).logout();

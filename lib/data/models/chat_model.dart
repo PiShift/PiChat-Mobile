@@ -55,6 +55,7 @@ class Chat {
     type: json['type'],
     metadata: json['metadata'] != null ? Map<String, dynamic>.from(jsonDecode(json['metadata'])) : null,
     mediaId: json['media_id'],
+    media: json['media'] != null ? ChatMedia.fromJson(json['media']) : null,
     status: json['status'] ?? 'pending',
     isRead: json['is_read'] == 1 ? true : false,
     createdAt: DateTime.parse(json['created_at']),

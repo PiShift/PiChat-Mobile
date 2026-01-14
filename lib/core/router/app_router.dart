@@ -2,9 +2,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pichat/core/router/stream_listenable.dart';
+import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/features/auth/presentation/login_screen.dart';
 import 'package:pichat/features/auth/presentation/tfa_screen.dart';
 import 'package:pichat/features/chat/presentation/chat_screen.dart';
+import 'package:pichat/features/chat/presentation/chat_threads.dart';
 import 'package:pichat/features/home/presentation/home_screen.dart';
 import 'package:pichat/features/select_organization/presentation/select_org_screen.dart';
 import 'package:pichat/features/settings/presentation/settings_screen.dart';
@@ -77,6 +79,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/home/settings',
             builder: (context, state) => const SettingsScreen(),
+          ),
+          GoRoute(
+            path: '/home/chats/detail',
+            builder: (context, state) {
+              final contact = state.extra as Contact;
+              return ChatThread(contact: contact);
+            },
           ),
         ],
       ),

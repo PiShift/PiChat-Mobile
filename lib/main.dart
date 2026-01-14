@@ -2,7 +2,9 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_x/flutter_secure_storage_x.dart';
+import 'package:http/http.dart' as ref;
 import 'package:pichat/core/network/provider_logger.dart';
+import 'package:pichat/services/reverb_singleton.dart';
 
 import 'core/router/app_router.dart';
 import 'core/state/auth_state.dart';
@@ -31,6 +33,10 @@ Future<void> main() async {
     container.read(userProvider.notifier).loadUser(int.parse(userId));
 
     if (orgId != null && orgId.isNotEmpty) {
+      // Start Reverb connection
+      final reverbService = container.read(reverbServiceProvider);
+      reverbService.init(orgId: orgId, database: db);
+      reverbService.connect();
       final org = await db.getOrganizationById(int.parse(orgId));
       if(org != null) {
         container.read(organizationProvider.notifier).setOrganization(org, int.parse(userId));
