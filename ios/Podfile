@@ -1,5 +1,5 @@
 # Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -39,5 +39,31 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+
+    target.build_configurations.each do |config|
+      # Match the platform line at the top of this file. flutter_webrtc and
+      # flutter_callkit_incoming require iOS 13+; we ship 14 to match the
+      # rest of our deps.
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+
+      # permission_handler: enable only the permissions the app actually
+      # uses. Anything not enabled here returns `denied` automatically.
+      # See: https://pub.dev/packages/permission_handler#ios
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
+        '$(inherited)',
+        # Microphone (calls + voice notes)
+        'PERMISSION_MICROPHONE=1',
+        # Camera (image picker — kept for future)
+        'PERMISSION_CAMERA=1',
+        # Photo library (image / video picker)
+        'PERMISSION_PHOTOS=1',
+        # Location (share location)
+        'PERMISSION_LOCATION=1',
+        # Contacts (share contact card)
+        'PERMISSION_CONTACTS=1',
+        # Notifications (FCM + CallKit)
+        'PERMISSION_NOTIFICATIONS=1',
+      ]
+    end
   end
 end

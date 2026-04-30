@@ -63,6 +63,12 @@ dependencies:
   geolocator: ^14.0.0
   flutter_contacts: ^1.1.9+2
 
+  # WhatsApp Calling (Phase 3)
+  flutter_webrtc: ^0.13.0
+  flutter_callkit_incoming: ^2.5.2
+  audio_session: ^0.2.2
+  wakelock_plus: ^1.2.10
+
 dependency_overrides:
   # record 5.2.1 transitively pulls in the very old record_linux 0.7.2,
   # which doesn't implement startStream / hasPermission(request:) added in

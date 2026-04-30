@@ -58,7 +58,7 @@ packages:
     source: hosted
     version: "2.13.0"
   audio_session:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
       name: audio_session
       sha256: "8f96a7fecbb718cb093070f868b4cdcb8a9b1053dce342ff8ab2fde10eb9afb7"
@@ -463,7 +463,7 @@ packages:
     source: hosted
     version: "3.4.1"
   flutter_callkit_incoming:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
       name: flutter_callkit_incoming
       sha256: "993fb0f0cd990961072f0d13ff815a91773f92bfa1895be17d3366b2225ec9cd"
@@ -606,7 +606,7 @@ packages:
     source: sdk
     version: "0.0.0"
   flutter_webrtc:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
       name: flutter_webrtc
       sha256: "23af761bb812e6f32c34263e62df48aaf26bb08582c8be8cc3170e2a018d1155"
@@ -1731,7 +1731,7 @@ packages:
     source: hosted
     version: "15.0.2"
   wakelock_plus:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
       name: wakelock_plus
       sha256: ddf3db70eaa10c37558ff817519b85d527dbd21034fd5d8e1c2e85f31588f1c1
