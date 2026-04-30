@@ -1,4 +1,3 @@
-import 'dart:developer';
 import 'package:pusher_client_socket/pusher_client_socket.dart';
 
 class ReverbService {
@@ -8,13 +7,13 @@ class ReverbService {
 
   Future<void> init(String organizationId, String authToken) async {
     final options = PusherOptions(
-      key: 'pi_9a885dd7c4f547c01',
-      host: 'wss://wavely.pishift.co',
+      key: 'kmdqYl4DVjIv6kBPtlJ9',
+      host: 'wss://ws-a103f1b6-c226-40d1-bd26-b924569d4c9c-reverb.laravel.cloud',
       wssPort: 443,
       encrypted: true, // wss
       authOptions: PusherAuthOptions(
-        'https://wavely.pishift.co/broadcasting/auth',
-        headers: {
+        'https://ws-a103f1b6-c226-40d1-bd26-b924569d4c9c-reverb.laravel.cloud/broadcasting/auth',
+        headers: () async => {
           'Accept': 'application/json',
           'Authorization': 'Bearer $authToken',
         },

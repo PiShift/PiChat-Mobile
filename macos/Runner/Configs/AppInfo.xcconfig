@@ -8,7 +8,7 @@
 PRODUCT_NAME = pichat
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.pichat
+PRODUCT_BUNDLE_IDENTIFIER = com.pishift.pichat
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2025 com.example. All rights reserved.

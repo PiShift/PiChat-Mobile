@@ -44,7 +44,7 @@ class Chat {
     this.logs = const [],
   });
 
-  // ✅ From API JSON
+  // ✅ From API JSON (full chat object)
   factory Chat.fromJson(Map<String, dynamic> json) => Chat(
     id: json['id'],
     orgId: json['organization_id'],
@@ -63,6 +63,52 @@ class Chat {
     deletedAt: json['deleted_at'] != null ? DateTime.parse(json['deleted_at']) : null,
     deletedBy: json['deleted_by']
   );
+
+  // ✅ From simplified preview (used in contact list last_message)
+  factory Chat.fromPreview(Map<String, dynamic> json, int contactId) {
+    // Build metadata based on content_type
+    final contentType = json['content_type'] ?? 'text';
+    final messageText = json['message'];
+    
+    Map<String, dynamic>? metadata;
+    if (messageText != null || contentType != null) {
+      metadata = {'type': contentType};
+      
+      switch (contentType) {
+        case 'text':
+          metadata['text'] = {'body': messageText ?? ''};
+          break;
+        case 'image':
+          metadata['image'] = messageText != null ? {'caption': messageText} : {};
+          break;
+        case 'video':
+          metadata['video'] = messageText != null ? {'caption': messageText} : {};
+          break;
+        case 'audio':
+          metadata['audio'] = {};
+          break;
+        case 'document':
+          metadata['document'] = messageText != null ? {'caption': messageText} : {};
+          break;
+        default:
+          metadata['text'] = {'body': messageText ?? ''};
+      }
+    }
+    
+    return Chat(
+      id: json['id'],
+      orgId: 0, // Not provided in preview
+      uuid: '', // Not provided in preview
+      contactId: contactId,
+      type: json['direction'] ?? json['type'] ?? 'inbound', // direction = inbound/outbound
+      metadata: metadata,
+      status: 'delivered',
+      isRead: json['is_read'] == true || json['is_read'] == 1,
+      createdAt: json['sent_at'] != null 
+          ? DateTime.parse(json['sent_at']) 
+          : (json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now()),
+    );
+  }
 
   // ✅ To API JSON
   Map<String, dynamic> toJson() => {

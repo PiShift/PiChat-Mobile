@@ -22,23 +22,39 @@ class MediaRepository {
   Future<String> downloadAndSaveMedia({
     required String contactId,
     required String mediaId,
+    String? metaId,
+    String? metaUrl,
     required String mediaType,
     required String accessToken,
   }) async {
-    // Check if already downloaded
+    // Check if already downloaded on disk
     if (await _localManager.exists(
       contactId: contactId,
       mediaId: mediaId,
       mediaType: mediaType,
     )) {
-      return _getLocalPath(contactId, mediaId, mediaType);
+      final localPath = await _getLocalPath(contactId, mediaId, mediaType);
+      // Always sync location to DB — guards against the row being overwritten
+      // by a server fetch after the file was saved (e.g. location reset to null).
+      await _db.updateMediaPath(mediaId, localPath);
+      return localPath;
     }
 
-    // Get media URL from Meta
-    final mediaUrl = await _metaService.getMediaUrl(mediaId, accessToken);
+    // Use stored meta_url directly; only fetch from Meta API if not available
+    final downloadUrl = metaUrl ?? await _metaService.getMediaUrl(metaId ?? mediaId, accessToken);
 
-    // Download media
-    final bytes = await _metaService.downloadMedia(mediaUrl, accessToken);
+    // Download media — if the stored URL is expired (404), get a fresh one via Meta API
+    late Uint8List bytes;
+    try {
+      bytes = await _metaService.downloadMedia(downloadUrl, accessToken);
+    } catch (_) {
+      // Extract WhatsApp media ID from the expired URL's `mid` query param, or use metaId
+      final whatsappId = _extractMidFromUrl(metaUrl) ?? metaId;
+      if (whatsappId == null) rethrow;
+      print('====== meta_url expired, fetching fresh URL for mid=$whatsappId');
+      final freshUrl = await _metaService.getMediaUrl(whatsappId, accessToken);
+      bytes = await _metaService.downloadMedia(freshUrl, accessToken);
+    }
 
     // Save locally
     final localPath = await _localManager.saveMedia(
@@ -61,5 +77,16 @@ class MediaRepository {
   ) async {
     final path = await _localManager.getMediaPath(contactId, mediaType);
     return '$path/$mediaId${_localManager.getExtensionFromMimeType(mediaType)}';
+  }
+
+  /// Extracts the `mid` query parameter from a Meta CDN URL.
+  /// e.g. https://lookaside.fbsbx.com/...?mid=940895221910061&...  → "940895221910061"
+  String? _extractMidFromUrl(String? url) {
+    if (url == null) return null;
+    try {
+      return Uri.parse(url).queryParameters['mid'];
+    } catch (_) {
+      return null;
+    }
   }
 }

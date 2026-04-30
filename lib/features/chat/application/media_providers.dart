@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/repositories/media_repository.dart';
@@ -67,7 +68,7 @@ class MediaPlaybackNotifier extends StateNotifier<MediaPlaybackState> {
 
   MediaPlaybackNotifier(this._ref, this._mediaId) : super(MediaPlaybackState());
 
-  Future<void> downloadMedia(String contactId, String mediaType) async {
+  Future<void> downloadMedia(String contactId, String mediaType, {String? metaId, String? metaUrl}) async {
     if (state.isDownloading || state.isDownloaded) return;
 
     state = state.copyWith(isDownloading: true, error: null);
@@ -83,6 +84,8 @@ class MediaPlaybackNotifier extends StateNotifier<MediaPlaybackState> {
       final localPath = await mediaRepo.downloadAndSaveMedia(
         contactId: contactId,
         mediaId: _mediaId,
+        metaId: metaId,
+        metaUrl: metaUrl,
         mediaType: mediaType,
         accessToken: accessToken,
       );

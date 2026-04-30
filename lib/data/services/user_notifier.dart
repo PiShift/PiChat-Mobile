@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/models/user_model.dart';

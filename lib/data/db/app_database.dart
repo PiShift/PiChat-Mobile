@@ -26,13 +26,15 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async => await m.createAll(),
     onUpgrade: (m, from, to) async {
-      // Add migration logic here if needed
+      if (from < 2) {
+        await m.addColumn(medias, medias.metaId);
+      }
     },
   );
 
@@ -231,8 +233,48 @@ extension MediasUpdate on AppDatabase {
     return (update(medias)..where((m) => m.id.equals(int.parse(mediaId)))).write(
       MediasCompanion(
         path: Value(localPath),
-        location: const Value('local'), // Update location to local
+        location: const Value('local'),
       ),
     );
+  }
+
+  /// Inserts or updates a media row from server data, but never overwrites a
+  /// locally-downloaded file (location == 'local'). This preserves the local
+  /// path and location after the user downloads an inbound image/document.
+  Future<void> upsertMediaPreservingLocal(MediasCompanion companion) async {
+    final id = companion.id.value;
+    final existing = await (select(medias)..where((m) => m.id.equals(id))).getSingleOrNull();
+
+    if (existing != null && existing.location == 'local') {
+      // Already downloaded — update everything except path and location.
+      await (update(medias)..where((m) => m.id.equals(id))).write(
+        MediasCompanion(
+          mediaId: companion.mediaId,
+          metaId: companion.metaId,
+          name: companion.name,
+          metaUrl: companion.metaUrl,
+          type: companion.type,
+          size: companion.size,
+          createdAt: companion.createdAt,
+          // path and location intentionally omitted — keeps local values
+        ),
+      );
+    } else {
+      await into(medias).insertOnConflictUpdate(companion);
+    }
+  }
+}
+
+extension ChatsUpdate on AppDatabase {
+  /// Update only the status column of a chat row (used for optimistic UI).
+  Future<int> updateChatStatus(int chatId, String status) {
+    return (update(chats)..where((c) => c.id.equals(chatId))).write(
+      ChatsCompanion(status: Value(status)),
+    );
+  }
+
+  /// Delete a chat row by id (used to remove failed optimistic messages on retry).
+  Future<int> deleteChat(int chatId) {
+    return (delete(chats)..where((c) => c.id.equals(chatId))).go();
   }
 }

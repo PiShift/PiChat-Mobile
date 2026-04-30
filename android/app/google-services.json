@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "886312135212",
+    "project_id": "pichat-io",
+    "storage_bucket": "pichat-io.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:886312135212:android:646170945a8043dfd9bf89",
+        "android_client_info": {
+          "package_name": "com.pishift.pichat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAozFequ2mVp6lgXHjuOCEbW71cjCZDOjI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

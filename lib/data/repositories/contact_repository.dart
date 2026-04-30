@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/dio_provider.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
+import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/data/models/user_model.dart';
 import 'package:dio/dio.dart';
@@ -27,9 +29,29 @@ class ContactRepository {
     bool forceRefresh = false,
   }) async {
     if (!forceRefresh && page == 1) {
-      final cached = await _db.select(_db.contacts).get();
+      final cached = await (_db.select(_db.contacts)
+            ..orderBy([
+              (t) => OrderingTerm(
+                    expression: t.latestChatCreatedAt,
+                    mode: OrderingMode.desc,
+                  )
+            ]))
+          .get();
       if (cached.isNotEmpty) {
-        return cached.map((row) => Contact.fromDb(row)).toList();
+        // Load lastChat for each contact from the local chats table
+        final contacts = await Future.wait(cached.map((row) async {
+          final contact = Contact.fromDb(row);
+          if (row.lastChatId != null) {
+            final chatRow = await (_db.select(_db.chats)
+                  ..where((c) => c.id.equals(row.lastChatId!)))
+                .getSingleOrNull();
+            if (chatRow != null) {
+              return contact.copyWith(lastChat: Chat.fromDb(chatRow));
+            }
+          }
+          return contact;
+        }));
+        return contacts;
       }
     }
 
@@ -63,6 +85,106 @@ class ContactRepository {
     final response = await _dio.get('/contacts/$id');
     final contact = Contact.fromJson(response.data['data']);
 
+    await _db.into(_db.contacts).insertOnConflictUpdate(contact.toCompanion());
+    return contact;
+  }
+
+  /// Search contacts locally (from cache) by phone or name
+  Future<List<Contact>> searchContacts(String query) async {
+    final cached = await _db.select(_db.contacts).get();
+    final lower = query.toLowerCase();
+    return cached
+        .where((row) =>
+            (row.phone.contains(lower)) ||
+            (row.fullName?.toLowerCase().contains(lower) ?? false) ||
+            (row.firstName?.toLowerCase().contains(lower) ?? false) ||
+            (row.lastName?.toLowerCase().contains(lower) ?? false))
+        .map((row) => Contact.fromDb(row))
+        .toList();
+  }
+
+  /// Create a new contact via the API
+  Future<Contact> createContact({
+    required String phone,
+    String? firstName,
+    String? lastName,
+  }) async {
+    final response = await _dio.post('/contacts/create', data: {
+      'phone': phone,
+      if (firstName != null && firstName.isNotEmpty) 'first_name': firstName,
+      if (lastName != null && lastName.isNotEmpty) 'last_name': lastName,
+    });
+
+    final data = response.data;
+    // API returns { success, contact } or { success, message, contact } on 409
+    final contactJson = data['contact'] as Map<String, dynamic>;
+    return Contact.fromJson(contactJson);
+  }
+
+  /// Look up a contact by phone number on the server. Returns `null` when
+  /// the number isn't in the org's address book yet (HTTP 404). Other
+  /// errors propagate.
+  Future<Contact?> findContactByPhone(String phone) async {
+    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    try {
+      final response = await _dio.get(
+        '/contacts/find',
+        queryParameters: {'phone': digits},
+      );
+      final json = response.data['contact'] as Map<String, dynamic>?;
+      if (json == null) return null;
+      final contact = Contact.fromJson(json);
+      await _db.into(_db.contacts).insertOnConflictUpdate(contact.toCompanion());
+      return contact;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Find an existing contact for [phone] (checking the local cache first,
+  /// then the server) and only create a new one if neither has it. The
+  /// returned contact is always persisted in the local DB so the chat
+  /// thread can be opened immediately.
+  Future<Contact> findOrCreateByPhone({
+    required String phone,
+    String? firstName,
+    String? lastName,
+  }) async {
+    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+
+    // 1. Local cache first — by far the most common case.
+    final localRow = await (_db.select(_db.contacts)
+          ..where((c) => c.phone.equals(digits)))
+        .getSingleOrNull();
+    if (localRow != null) return Contact.fromDb(localRow);
+
+    // 2. Ask the server (handles the case where another agent created the
+    //    contact and we just haven't synced yet).
+    final remote = await findContactByPhone(digits);
+    if (remote != null) return remote;
+
+    // 3. Genuinely new — create it.
+    return createContact(
+      phone: digits,
+      firstName: firstName,
+      lastName: lastName,
+    );
+  }
+
+  /// Update an existing contact
+  Future<Contact> updateContact({
+    required String uuid,
+    String? firstName,
+    String? lastName,
+  }) async {
+    final response = await _dio.put('/contacts/$uuid', data: {
+      if (firstName != null) 'first_name': firstName,
+      if (lastName != null) 'last_name': lastName,
+    });
+
+    final contactJson = response.data['contact'] as Map<String, dynamic>;
+    final contact = Contact.fromJson(contactJson);
     await _db.into(_db.contacts).insertOnConflictUpdate(contact.toCompanion());
     return contact;
   }

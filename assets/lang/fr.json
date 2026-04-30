@@ -1,13 +1,263 @@
 {
   "app_name": "PiChat",
   "auth": {
-    "login": "Login",
-    "email": "Email",
-    "password": "Password",
-    "welcome": "Welcome back, {name}"
+    "login": "Connexion",
+    "email": "E-mail",
+    "password": "Mot de passe",
+    "welcome": "Bienvenue, {name}"
   },
   "errors": {
-    "network": "No internet connection",
-    "unauthorized": "Session expired, please log in again"
+    "timeout": "La requête a expiré. Veuillez réessayer.",
+    "unauthorized": "Identifiants invalides. Veuillez vous reconnecter.",
+    "not_found": "La ressource demandée est introuvable.",
+    "server_error": "Erreur serveur. Veuillez réessayer plus tard.",
+    "network": "Pas de connexion Internet.",
+    "cancelled": "La requête a été annulée.",
+    "unknown": "Une erreur s'est produite."
+  },
+  "common": {
+    "retry": "Réessayer",
+    "cancel": "Annuler"
+  },
+  "home": {
+    "nav": {
+      "chats": "Discussions",
+      "settings": "Paramètres"
+    }
+  },
+  "chat": {
+    "menu": {
+      "contact_details": "Détails du contact",
+      "send_template": "Envoyer un modèle",
+      "assign_to_agent": "Assigner à un agent",
+      "change_status": "Changer le statut",
+      "close_ticket": "Fermer le ticket"
+    },
+    "banner": {
+      "24h_expired": "Fenêtre de 24h expirée. Vous pouvez uniquement envoyer des modèles.",
+      "send_template_button": "Envoyer un modèle"
+    },
+    "input": {
+      "hint": "Tapez / pour les réponses rapides..."
+    },
+    "attachment": {
+      "sheet_title": "Partager",
+      "gallery": "Galerie",
+      "camera": "Caméra",
+      "document": "Document"
+    },
+    "tooltip": {
+      "media_gallery": "Galerie multimédia",
+      "quick_replies": "Réponses rapides"
+    },
+    "snackbar": {
+      "ticket_closed": "Ticket fermé",
+      "failed_to_send": "Échec de l'envoi : {error}",
+      "assigned_to": "Assigné à {name}",
+      "failed_to_assign": "Échec de l'assignation : {error}",
+      "status_changed": "Statut changé en {status}",
+      "failed_to_update_status": "Échec de la mise à jour du statut : {error}",
+      "failed_to_close_ticket": "Échec de la fermeture du ticket : {error}",
+      "error_picking_image": "Erreur lors de la sélection de l'image : {error}",
+      "error_picking_file": "Erreur lors de la sélection du fichier : {error}"
+    },
+    "error": {
+      "loading_messages": "Erreur lors du chargement des messages : {error}"
+    }
+  },
+  "new_chat": {
+    "title": "Nouvelle discussion",
+    "action": {
+      "search": "Rechercher",
+      "new_contact": "Nouveau contact"
+    },
+    "search": {
+      "hint": "Rechercher par nom ou téléphone..."
+    },
+    "empty": {
+      "no_contacts": "Aucun contact trouvé",
+      "create_contact": "Créer un nouveau contact"
+    },
+    "form": {
+      "subtitle": "Entrez les coordonnées pour démarrer une nouvelle conversation.",
+      "phone_label": "Numéro de téléphone *",
+      "phone_hint": "+1234567890",
+      "first_name_label": "Prénom (optionnel)",
+      "last_name_label": "Nom (optionnel)",
+      "start_chat_button": "Démarrer la discussion"
+    },
+    "error": {
+      "phone_required": "Le numéro de téléphone est requis"
+    }
+  },
+  "contact_details": {
+    "title": "Détails du contact",
+    "title_editing": "Modifier le contact",
+    "section": {
+      "information": "Informations du contact",
+      "ticket_status": "Statut du ticket"
+    },
+    "field": {
+      "first_name": "Prénom",
+      "last_name": "Nom",
+      "phone": "Téléphone",
+      "status": "Statut",
+      "assigned_to": "Assigné à"
+    },
+    "value": {
+      "unassigned": "Non assigné"
+    },
+    "action": {
+      "assign": "Assigner",
+      "change_status": "Statut",
+      "send_message": "Envoyer un message",
+      "view_media": "Voir les médias",
+      "block_contact": "Bloquer le contact"
+    },
+    "error": {
+      "load_ticket": "Échec du chargement du ticket"
+    },
+    "snackbar": {
+      "contact_saved": "Contact enregistré",
+      "failed_to_save": "Échec de l'enregistrement : {error}",
+      "failed": "Échec : {error}"
+    }
+  },
+  "settings": {
+    "title": "Paramètres",
+    "section": {
+      "notifications": "Notifications",
+      "chat": "Discussion",
+      "appearance": "Apparence",
+      "account": "Compte"
+    },
+    "notifications": {
+      "push_title": "Notifications push",
+      "push_subtitle": "Recevoir des notifications pour les nouveaux messages",
+      "sound_title": "Son",
+      "sound_subtitle": "Jouer un son pour les notifications"
+    },
+    "chat": {
+      "enter_to_send_title": "Entrée pour envoyer",
+      "enter_to_send_subtitle": "Appuyez sur Entrée pour envoyer des messages"
+    },
+    "appearance": {
+      "theme": "Thème",
+      "language": "Langue"
+    },
+    "account": {
+      "change_password": "Changer le mot de passe"
+    },
+    "language": {
+      "english": "English",
+      "french": "Français",
+      "arabic": "العربية"
+    },
+    "password": {
+      "current_label": "Mot de passe actuel",
+      "new_label": "Nouveau mot de passe",
+      "confirm_label": "Confirmer le mot de passe",
+      "change_button": "Changer"
+    },
+    "logout_button": "Déconnexion",
+    "version": "PiChat v{version}",
+    "error": {
+      "load_profile": "Échec du chargement du profil"
+    },
+    "snackbar": {
+      "password_changed": "Mot de passe modifié",
+      "failed_to_update": "Échec de la mise à jour : {error}",
+      "logout_failed": "Échec de la déconnexion : {error}"
+    }
+  },
+  "select_org": {
+    "title": "Sélectionner l'organisation"
+  },
+  "templates": {
+    "title": "Envoyer un modèle",
+    "banner": {
+      "24h_expired": "Fenêtre de 24h expirée. Vous pouvez uniquement envoyer des modèles approuvés à {name}."
+    },
+    "search": {
+      "hint": "Rechercher des modèles..."
+    },
+    "category": {
+      "all": "Tout",
+      "marketing": "Marketing",
+      "utility": "Utilitaire",
+      "authentication": "Authentification"
+    },
+    "error": {
+      "load_failed": "Échec du chargement des modèles"
+    },
+    "empty": {
+      "no_templates": "Aucun modèle trouvé"
+    },
+    "snackbar": {
+      "sent_successfully": "Modèle envoyé avec succès",
+      "failed_to_send": "Échec de l'envoi : {error}"
+    },
+    "info": {
+      "no_fields": "Aucun champ à remplir. Appuyez sur Envoyer."
+    },
+    "section": {
+      "header_fields": "Champs d'en-tête",
+      "message_fields": "Champs du message"
+    },
+    "preview": {
+      "label": "Aperçu"
+    },
+    "send_button": "Envoyer le modèle",
+    "attachment": {
+      "image": "Pièce jointe image",
+      "video": "Pièce jointe vidéo",
+      "document_attachment": "Pièce jointe document",
+      "file": "Pièce jointe fichier",
+      "tap_to_pick": "Appuyer pour choisir {type}"
+    },
+    "hint": {
+      "name": "ex. Ahmed Al-Rashid",
+      "date": "ex. 28 avril 2026",
+      "time": "ex. 14:30",
+      "city": "ex. Dubaï",
+      "order_number": "ex. #12345",
+      "amount": "ex. 500.00 EUR",
+      "code": "ex. 123456",
+      "default": "Entrer une valeur…"
+    },
+    "variable": {
+      "message_field": "Champ message {index}",
+      "header_field": "Champ en-tête {index}"
+    }
+  },
+  "agent_picker": {
+    "title": "Assigner à un agent",
+    "error": {
+      "load_failed": "Échec du chargement des agents"
+    },
+    "empty": {
+      "no_agents": "Aucun agent disponible"
+    },
+    "active_tickets": "{count} actif(s)"
+  },
+  "ticket_status": {
+    "title": "Changer le statut",
+    "open": "Ouvert",
+    "pending": "En attente",
+    "closed": "Fermé"
+  },
+  "quick_replies": {
+    "title": "Réponses rapides",
+    "search": {
+      "hint": "Rechercher ou taper /raccourci..."
+    },
+    "error": {
+      "load_failed": "Échec du chargement des réponses rapides"
+    },
+    "empty": {
+      "no_replies": "Aucune réponse rapide disponible",
+      "no_matches": "Aucune réponse correspondante trouvée"
+    },
+    "tip": "Astuce : Tapez / dans la discussion pour accéder rapidement aux raccourcis"
   }
 }

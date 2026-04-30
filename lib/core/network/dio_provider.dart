@@ -26,14 +26,28 @@ final dioProvider = Provider<Dio>((ref) {
         options.headers['Authorization'] = 'Bearer $token';
       }
       if (orgId != null) {
-        options.headers['organization_id'] = orgId.id.toString();
-        // For GET/DELETE requests, append to queryParameters
-        options.queryParameters['organization_id'] = orgId.id;
+        final orgIdString = orgId.id.toString();
+        options.headers['organization_id'] = orgIdString;
 
-        // For POST/PUT/PATCH, optionally include in body
+        // Always add to query parameters as string
+        // Create a new map to avoid type conflicts with existing parameters
+        final newParams = Map<String, dynamic>.from(options.queryParameters);
+        newParams['organization_id'] = orgIdString;
+        options.queryParameters = newParams;
+
+        // For POST/PUT/PATCH, also include in body as string if body is a Map
         if (options.method != 'GET' && options.method != 'DELETE') {
-          if (options.data is Map<String, dynamic>) {
-            options.data['organization_id'] = orgId.id;
+          if (options.data is Map) {
+            // Always re-wrap as Map<String, dynamic> so an inferred
+            // Map<String, int> literal at the call site can't reject
+            // a String value (was crashing terminate / outbound calls).
+            final original = (options.data as Map);
+            final rewrapped = <String, dynamic>{
+              for (final entry in original.entries)
+                entry.key.toString(): entry.value,
+            };
+            rewrapped['organization_id'] = orgIdString;
+            options.data = rewrapped;
           }
         }
       }
@@ -42,8 +56,13 @@ final dioProvider = Provider<Dio>((ref) {
     onError: (DioException e, handler) {
       final status = e.response?.statusCode;
       debugPrint('DIO onError: status=$status url=${e.requestOptions.uri}');
-      // Handle 401 (maybe trigger logout)
+      // Handle 401 - auto logout
       if (e.response?.statusCode == 401) {
+        debugPrint('DIO: 401 Unauthorized - triggering auto-logout');
+        // Clear all auth state
+        ref.read(authTokenProvider.notifier).state = null;
+        ref.read(organizationProvider.notifier).clear();
+        ref.read(userProvider.notifier).clear();
         ref.read(authProvider.notifier).logout();
       }
       return handler.next(e);

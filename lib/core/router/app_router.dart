@@ -5,14 +5,19 @@ import 'package:pichat/core/router/stream_listenable.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/features/auth/presentation/login_screen.dart';
 import 'package:pichat/features/auth/presentation/tfa_screen.dart';
+import 'package:pichat/features/campaigns/presentation/campaigns_screen.dart';
+import 'package:pichat/features/calls/presentation/call_history_screen.dart';
+import 'package:pichat/features/calls/presentation/in_call_screen.dart';
+import 'package:pichat/features/calls/presentation/outbound_call_screen.dart';
 import 'package:pichat/features/chat/presentation/chat_screen.dart';
 import 'package:pichat/features/chat/presentation/chat_threads.dart';
+import 'package:pichat/features/chat/presentation/new_chat_screen.dart';
 import 'package:pichat/features/home/presentation/home_screen.dart';
 import 'package:pichat/features/select_organization/presentation/select_org_screen.dart';
 import 'package:pichat/features/settings/presentation/settings_screen.dart';
 import 'package:pichat/features/splash/presentation/splash_screen.dart';
+import 'package:pichat/features/templates/presentation/templates_management_screen.dart';
 import '../state/auth_state.dart';
-import 'package:async/async.dart';
 
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -77,8 +82,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const ChatListScreen(),
           ),
           GoRoute(
+            path: '/home/templates',
+            builder: (context, state) => const TemplatesManagementScreen(),
+          ),
+          GoRoute(
+            path: '/home/campaigns',
+            builder: (context, state) => const CampaignsManagementScreen(),
+          ),
+          GoRoute(
             path: '/home/settings',
             builder: (context, state) => const SettingsScreen(),
+          ),
+          GoRoute(
+            path: '/home/chats/new',
+            builder: (context, state) => const NewChatScreen(),
           ),
           GoRoute(
             path: '/home/chats/detail',
@@ -87,7 +104,26 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               return ChatThread(contact: contact);
             },
           ),
+          GoRoute(
+            path: '/home/calls',
+            builder: (context, state) => const CallHistoryScreen(),
+          ),
         ],
+      ),
+      GoRoute(
+        path: '/call',
+        builder: (context, state) => const InCallScreen(),
+      ),
+      GoRoute(
+        path: '/call/outbound',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>;
+          return OutboundCallScreen(
+            contactUuid: extra['uuid'] as String,
+            contactName: extra['name'] as String? ?? '',
+            contactPhone: extra['phone'] as String? ?? '',
+          );
+        },
       ),
     ],
   );

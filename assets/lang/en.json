@@ -14,5 +14,253 @@
     "network": "No internet connection.",
     "cancelled": "Request was cancelled.",
     "unknown": "Something went wrong."
+  },
+  "common": {
+    "retry": "Retry",
+    "cancel": "Cancel"
+  },
+  "home": {
+    "nav": {
+      "chats": "Chats",
+      "settings": "Settings"
+    }
+  },
+  "chat": {
+    "menu": {
+      "contact_details": "Contact Details",
+      "send_template": "Send Template",
+      "assign_to_agent": "Assign to Agent",
+      "change_status": "Change Status",
+      "close_ticket": "Close Ticket"
+    },
+    "banner": {
+      "24h_expired": "24-hour window expired. You can only send templates.",
+      "send_template_button": "Send Template"
+    },
+    "input": {
+      "hint": "Type / for quick replies..."
+    },
+    "attachment": {
+      "sheet_title": "Share",
+      "gallery": "Gallery",
+      "camera": "Camera",
+      "document": "Document"
+    },
+    "tooltip": {
+      "media_gallery": "Media Gallery",
+      "quick_replies": "Quick Replies"
+    },
+    "snackbar": {
+      "ticket_closed": "Ticket closed",
+      "failed_to_send": "Failed to send: {error}",
+      "assigned_to": "Assigned to {name}",
+      "failed_to_assign": "Failed to assign: {error}",
+      "status_changed": "Status changed to {status}",
+      "failed_to_update_status": "Failed to update status: {error}",
+      "failed_to_close_ticket": "Failed to close ticket: {error}",
+      "error_picking_image": "Error picking image: {error}",
+      "error_picking_file": "Error picking file: {error}"
+    },
+    "error": {
+      "loading_messages": "Error loading messages: {error}"
+    },
+    "media": {
+      "retry_unavailable": "Original file is no longer available. Please re-attach to send."
+    }
+  },
+  "new_chat": {
+    "title": "New Chat",
+    "action": {
+      "search": "Search",
+      "new_contact": "New Contact"
+    },
+    "search": {
+      "hint": "Search by name or phone..."
+    },
+    "empty": {
+      "no_contacts": "No contacts found",
+      "create_contact": "Create new contact"
+    },
+    "form": {
+      "subtitle": "Enter the contact details to start a new conversation.",
+      "phone_label": "Phone Number *",
+      "phone_hint": "+1234567890",
+      "first_name_label": "First Name (optional)",
+      "last_name_label": "Last Name (optional)",
+      "start_chat_button": "Start Chat"
+    },
+    "error": {
+      "phone_required": "Phone number is required"
+    }
+  },
+  "contact_details": {
+    "title": "Contact Details",
+    "title_editing": "Edit Contact",
+    "section": {
+      "information": "Contact Information",
+      "ticket_status": "Ticket Status"
+    },
+    "field": {
+      "first_name": "First Name",
+      "last_name": "Last Name",
+      "phone": "Phone",
+      "status": "Status",
+      "assigned_to": "Assigned To"
+    },
+    "value": {
+      "unassigned": "Unassigned"
+    },
+    "action": {
+      "assign": "Assign",
+      "change_status": "Status",
+      "send_message": "Send Message",
+      "view_media": "View Media",
+      "block_contact": "Block Contact"
+    },
+    "error": {
+      "load_ticket": "Failed to load ticket"
+    },
+    "snackbar": {
+      "contact_saved": "Contact saved",
+      "failed_to_save": "Failed to save: {error}",
+      "failed": "Failed: {error}"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "section": {
+      "notifications": "Notifications",
+      "chat": "Chat",
+      "appearance": "Appearance",
+      "account": "Account"
+    },
+    "notifications": {
+      "push_title": "Push Notifications",
+      "push_subtitle": "Receive notifications for new messages",
+      "sound_title": "Sound",
+      "sound_subtitle": "Play sound for notifications"
+    },
+    "chat": {
+      "enter_to_send_title": "Enter to Send",
+      "enter_to_send_subtitle": "Press enter key to send messages"
+    },
+    "appearance": {
+      "theme": "Theme",
+      "language": "Language"
+    },
+    "account": {
+      "change_password": "Change Password"
+    },
+    "language": {
+      "english": "English",
+      "french": "Français",
+      "arabic": "العربية"
+    },
+    "password": {
+      "current_label": "Current Password",
+      "new_label": "New Password",
+      "confirm_label": "Confirm Password",
+      "change_button": "Change"
+    },
+    "logout_button": "Logout",
+    "version": "PiChat v{version}",
+    "error": {
+      "load_profile": "Failed to load profile"
+    },
+    "snackbar": {
+      "password_changed": "Password changed",
+      "failed_to_update": "Failed to update: {error}",
+      "logout_failed": "Logout failed: {error}"
+    }
+  },
+  "select_org": {
+    "title": "Select Organization"
+  },
+  "templates": {
+    "title": "Send Template",
+    "banner": {
+      "24h_expired": "24-hour window expired. You can only send approved templates to {name}."
+    },
+    "search": {
+      "hint": "Search templates..."
+    },
+    "category": {
+      "all": "All",
+      "marketing": "Marketing",
+      "utility": "Utility",
+      "authentication": "Authentication"
+    },
+    "error": {
+      "load_failed": "Failed to load templates"
+    },
+    "empty": {
+      "no_templates": "No templates found"
+    },
+    "snackbar": {
+      "sent_successfully": "Template sent successfully",
+      "failed_to_send": "Failed to send: {error}"
+    },
+    "info": {
+      "no_fields": "No fields to fill. Tap Send to deliver."
+    },
+    "section": {
+      "header_fields": "Header fields",
+      "message_fields": "Message fields"
+    },
+    "preview": {
+      "label": "Preview"
+    },
+    "send_button": "Send Template",
+    "attachment": {
+      "image": "Image attachment",
+      "video": "Video attachment",
+      "document_attachment": "Document attachment",
+      "file": "File attachment",
+      "tap_to_pick": "Tap to pick {type}"
+    },
+    "hint": {
+      "name": "e.g. Ahmed Al-Rashid",
+      "date": "e.g. April 28, 2026",
+      "time": "e.g. 14:30",
+      "city": "e.g. Dubai",
+      "order_number": "e.g. #12345",
+      "amount": "e.g. 500.00 SAR",
+      "code": "e.g. 123456",
+      "default": "Enter value…"
+    },
+    "variable": {
+      "message_field": "Message field {index}",
+      "header_field": "Header field {index}"
+    }
+  },
+  "agent_picker": {
+    "title": "Assign to Agent",
+    "error": {
+      "load_failed": "Failed to load agents"
+    },
+    "empty": {
+      "no_agents": "No agents available"
+    },
+    "active_tickets": "{count} active"
+  },
+  "ticket_status": {
+    "title": "Change Status",
+    "open": "Open",
+    "pending": "Pending",
+    "closed": "Closed"
+  },
+  "quick_replies": {
+    "title": "Quick Replies",
+    "search": {
+      "hint": "Search or type /shortcut..."
+    },
+    "error": {
+      "load_failed": "Failed to load quick replies"
+    },
+    "empty": {
+      "no_replies": "No quick replies available",
+      "no_matches": "No matching replies found"
+    },
+    "tip": "Tip: Type / in chat to quickly access shortcuts"
   }
 }

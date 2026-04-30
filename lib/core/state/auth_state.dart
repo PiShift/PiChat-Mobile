@@ -1,6 +1,7 @@
 // lib/core/state/auth_state.dart
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_secure_storage_x/flutter_secure_storage_x.dart';
 import 'package:pichat/core/constants/app_constants.dart';
 import 'package:pichat/data/db/app_database.dart';

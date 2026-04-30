@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
@@ -9,6 +10,14 @@ import 'package:pichat/core/network/dio_provider.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/models/chat_model.dart';
+
+/// Thrown when the server rejects a plain text message because the
+/// 24-hour WhatsApp messaging window has expired.
+class MessageWindowExpiredException implements Exception {
+  const MessageWindowExpiredException();
+  @override
+  String toString() => 'MessageWindowExpiredException';
+}
 
 
 final chatRepositoryProvider = Provider<ChatRepository>((ref) {
@@ -88,15 +97,10 @@ class ChatRepository {
           );
         });
 
-        // Insert all media
-        final mediaEntries = messages
-            .where((m) => m.media != null)
-            .map((m) => m.media!.toCompanion())
-            .toList();
-        if (mediaEntries.isNotEmpty) {
-          await _db.batch((batch) {
-            batch.insertAllOnConflictUpdate(_db.medias, mediaEntries);
-          });
+        // Insert all media — preserving locally-downloaded paths
+        final mediaList = messages.where((m) => m.media != null).toList();
+        for (final m in mediaList) {
+          await _db.upsertMediaPreservingLocal(m.media!.toCompanion());
         }
 
         // Insert logs - handle as separate entries per chat
@@ -128,6 +132,400 @@ class ChatRepository {
     return sent;
   }
 
+  /// Send a text message to a contact by UUID
+  /// Returns the sent Chat object on success, or throws on failure.
+  /// Optimistically inserts the message with status='pending' first,
+  /// then updates to 'sent' or 'failed' after the API call.
+  Future<Chat> sendTextMessage(
+    String contactUuid,
+    String message, {
+    required int contactId,
+    required int orgId,
+    int? tempId,
+  }) async {
+    // Generate a stable negative temp ID so the caller can retry with the same row
+    final localId = tempId ?? -(DateTime.now().millisecondsSinceEpoch);
+
+    final optimistic = Chat(
+      id: localId,
+      orgId: orgId,
+      uuid: 'pending_$localId',
+      contactId: contactId,
+      type: 'outbound',
+      metadata: {'type': 'text', 'text': {'body': message}},
+      status: 'pending',
+      isRead: true,
+      createdAt: DateTime.now(),
+    );
+
+    await _db.into(_db.chats).insertOnConflictUpdate(optimistic.toCompanion());
+
+    try {
+      final response = await _dio.post(
+        '/contacts/$contactUuid/messages',
+        data: <String, dynamic>{'message': message, 'type': 'text'},
+      );
+
+      if (response.data['success'] == true) {
+        if (response.data['message'] != null) {
+          final sent = Chat.fromJson(response.data['message']);
+          // Atomically swap temp row → real row so the stream fires only once
+          await _db.transaction(() async {
+            await _db.deleteChat(localId);
+            await _db.into(_db.chats).insertOnConflictUpdate(sent.toCompanion());
+          });
+          return sent;
+        }
+        // API confirmed success but did not return the full message.
+        // Keep the temp row visible with 'sent' status — Reverb will replace it
+        // atomically later via _handleIncomingChat (FIFO matching).
+        await _db.updateChatStatus(localId, 'sent');
+        return optimistic.copyWith(status: 'sent');
+      }
+
+      await _db.updateChatStatus(localId, 'failed');
+      throw Exception(response.data['message'] ?? 'Failed to send message');
+    } on DioException catch (e) {
+      // 422 message_window_expired: remove the optimistic row — no retry makes sense.
+      // The caller should show the 24h-expired banner instead.
+      final errorCode = e.response?.data?['error'] as String?;
+      if (e.response?.statusCode == 422 && errorCode == 'message_window_expired') {
+        await _db.deleteChat(localId);
+        throw const MessageWindowExpiredException();
+      }
+      await _db.updateChatStatus(localId, 'failed');
+      rethrow;
+    } catch (e) {
+      await _db.updateChatStatus(localId, 'failed');
+      rethrow;
+    }
+  }
+
+  /// Send a media file with optimistic UI.
+  /// Immediately inserts a pending message, updates to sent/failed after upload.
+  /// Set [isVoice] when the file is an OPUS-encoded `.ogg` voice memo so the
+  /// backend forwards `voice: true` to Meta and WhatsApp renders it as a
+  /// voice note (mic icon, transcription) instead of a basic audio file.
+  Future<Chat> sendMediaMessage(
+    String contactUuid,
+    File file, {
+    String? caption,
+    required int contactId,
+    required int orgId,
+    int? tempId,
+    bool isVoice = false,
+  }) async {
+    final localId = tempId ?? -(DateTime.now().millisecondsSinceEpoch);
+    final fileName = file.path.split('/').last;
+    final isImage = _isImageFile(fileName);
+
+    // Build metadata like a real chat so ChatMessageItem can render it
+    final Map<String, dynamic> mediaType = isImage
+        ? {'caption': caption ?? ''}
+        : (isVoice
+            ? {'filename': fileName, 'caption': caption ?? '', 'voice': true}
+            : {'filename': fileName, 'caption': caption ?? ''});
+    final String type = isImage ? 'image' : _guessMediaType(fileName);
+
+    final optimistic = Chat(
+      id: localId,
+      orgId: orgId,
+      uuid: 'pending_$localId',
+      contactId: contactId,
+      type: 'outbound',
+      metadata: {
+        'type': type,
+        type: mediaType,
+        '_localFilePath': file.path, // used by ChatMessageItem to render local preview
+      },
+      status: 'pending',
+      isRead: true,
+      createdAt: DateTime.now(),
+    );
+
+    await _db.into(_db.chats).insertOnConflictUpdate(optimistic.toCompanion());
+
+    try {
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(file.path, filename: fileName),
+        if (caption != null) 'caption': caption,
+        if (isVoice) 'voice': '1',
+      });
+
+      final response = await _dio.post(
+        '/contacts/$contactUuid/media',
+        data: formData,
+      );
+
+      if (response.data['success'] == true) {
+        if (response.data['message'] != null) {
+          // Server returned the full chat — atomically swap temp → real (no flicker)
+          final sent = Chat.fromJson(response.data['message']);
+          // Always build an updated metadata map
+          final meta = Map<String, dynamic>.from(sent.metadata ?? {});
+          // 1) Keep image accessible from local file — no network download needed
+          meta['_localFilePath'] = file.path;
+          // 2) If server didn't store caption, restore it from what we sent
+          if (caption != null && caption.isNotEmpty) {
+            final serverType = meta['type'] as String? ?? type;
+            final block = Map<String, dynamic>.from((meta[serverType] as Map?) ?? {});
+            block['caption'] ??= caption;
+            meta[serverType] = block;
+          }
+          final finalSent = sent.copyWith(metadata: meta);
+          await _db.transaction(() async {
+            await _db.deleteChat(localId);
+            await _db.into(_db.chats).insertOnConflictUpdate(finalSent.toCompanion());
+            if (sent.media != null) {
+              await _db.upsertMediaPreservingLocal(sent.media!.toCompanion());
+            }
+          });
+          return finalSent;
+        }
+        // API confirmed but did not return the full message — keep temp visible.
+        // Reverb will atomically replace it (FIFO) when it arrives.
+        await _db.updateChatStatus(localId, 'sent');
+        return optimistic.copyWith(status: 'sent');
+      }
+
+      await _db.updateChatStatus(localId, 'failed');
+      throw Exception(response.data['message'] ?? 'Failed to send media');
+    } catch (e) {
+      await _db.updateChatStatus(localId, 'failed');
+      rethrow;
+    }
+  }
+
+  /// Send a location pin to a contact.
+  /// Optimistically inserts a `location` chat row, then swaps it with the
+  /// authoritative server response (or marks it failed).
+  Future<Chat> sendLocation(
+    String contactUuid, {
+    required double latitude,
+    required double longitude,
+    String? name,
+    String? address,
+    required int contactId,
+    required int orgId,
+    int? tempId,
+  }) async {
+    final localId = tempId ?? -(DateTime.now().millisecondsSinceEpoch);
+
+    final locationPayload = <String, dynamic>{
+      'latitude': latitude,
+      'longitude': longitude,
+      if (name != null && name.isNotEmpty) 'name': name,
+      if (address != null && address.isNotEmpty) 'address': address,
+    };
+
+    final optimistic = Chat(
+      id: localId,
+      orgId: orgId,
+      uuid: 'pending_$localId',
+      contactId: contactId,
+      type: 'outbound',
+      metadata: {'type': 'location', 'location': locationPayload},
+      status: 'pending',
+      isRead: true,
+      createdAt: DateTime.now(),
+    );
+
+    await _db.into(_db.chats).insertOnConflictUpdate(optimistic.toCompanion());
+
+    try {
+      final response = await _dio.post(
+        '/contacts/$contactUuid/location',
+        data: <String, dynamic>{
+          'latitude': latitude,
+          'longitude': longitude,
+          if (name != null && name.isNotEmpty) 'name': name,
+          if (address != null && address.isNotEmpty) 'address': address,
+        },
+      );
+
+      if (response.data['success'] == true) {
+        if (response.data['message'] != null) {
+          final sent = Chat.fromJson(response.data['message']);
+          await _db.transaction(() async {
+            await _db.deleteChat(localId);
+            await _db.into(_db.chats).insertOnConflictUpdate(sent.toCompanion());
+          });
+          return sent;
+        }
+        await _db.updateChatStatus(localId, 'sent');
+        return optimistic.copyWith(status: 'sent');
+      }
+
+      await _db.updateChatStatus(localId, 'failed');
+      throw Exception(response.data['message'] ?? 'Failed to send location');
+    } on DioException catch (e) {
+      final errorCode = e.response?.data?['error'] as String?;
+      if (e.response?.statusCode == 422 && errorCode == 'message_window_expired') {
+        await _db.deleteChat(localId);
+        throw const MessageWindowExpiredException();
+      }
+      await _db.updateChatStatus(localId, 'failed');
+      rethrow;
+    } catch (e) {
+      await _db.updateChatStatus(localId, 'failed');
+      rethrow;
+    }
+  }
+
+  /// Share one or more contact cards. The [contacts] list must already be
+  /// shaped per Meta's Cloud API spec (each item has `name.formatted_name`
+  /// plus optional phones / emails / addresses / urls / org / birthday).
+  Future<Chat> sendContactCards(
+    String contactUuid,
+    List<Map<String, dynamic>> contacts, {
+    required int contactId,
+    required int orgId,
+    int? tempId,
+  }) async {
+    final localId = tempId ?? -(DateTime.now().millisecondsSinceEpoch);
+
+    final optimistic = Chat(
+      id: localId,
+      orgId: orgId,
+      uuid: 'pending_$localId',
+      contactId: contactId,
+      type: 'outbound',
+      metadata: {'type': 'contacts', 'contacts': contacts},
+      status: 'pending',
+      isRead: true,
+      createdAt: DateTime.now(),
+    );
+
+    await _db.into(_db.chats).insertOnConflictUpdate(optimistic.toCompanion());
+
+    try {
+      final response = await _dio.post(
+        '/contacts/$contactUuid/contact-cards',
+        data: <String, dynamic>{'contacts': contacts},
+      );
+
+      if (response.data['success'] == true) {
+        if (response.data['message'] != null) {
+          final sent = Chat.fromJson(response.data['message']);
+          await _db.transaction(() async {
+            await _db.deleteChat(localId);
+            await _db.into(_db.chats).insertOnConflictUpdate(sent.toCompanion());
+          });
+          return sent;
+        }
+        await _db.updateChatStatus(localId, 'sent');
+        return optimistic.copyWith(status: 'sent');
+      }
+
+      await _db.updateChatStatus(localId, 'failed');
+      throw Exception(response.data['message'] ?? 'Failed to send contact');
+    } on DioException catch (e) {
+      final errorCode = e.response?.data?['error'] as String?;
+      if (e.response?.statusCode == 422 && errorCode == 'message_window_expired') {
+        await _db.deleteChat(localId);
+        throw const MessageWindowExpiredException();
+      }
+      await _db.updateChatStatus(localId, 'failed');
+      rethrow;
+    } catch (e) {
+      await _db.updateChatStatus(localId, 'failed');
+      rethrow;
+    }
+  }
+
+  /// React to a previously received WhatsApp message with a single emoji.
+  /// Pass an empty string for [emoji] to clear the reaction. The reaction
+  /// itself is stored as a small outbound chat row for history; UIs are
+  /// expected to render it as an overlay on the bubble identified by
+  /// [wamId] rather than as a standalone bubble.
+  Future<Chat> sendReaction(
+    String contactUuid, {
+    required String wamId,
+    required String emoji,
+    required int contactId,
+    required int orgId,
+  }) async {
+    final localId = -(DateTime.now().millisecondsSinceEpoch);
+
+    final optimistic = Chat(
+      id: localId,
+      orgId: orgId,
+      uuid: 'pending_$localId',
+      contactId: contactId,
+      type: 'outbound',
+      metadata: {
+        'type': 'reaction',
+        'reaction': {'message_id': wamId, 'emoji': emoji},
+      },
+      status: 'pending',
+      isRead: true,
+      createdAt: DateTime.now(),
+    );
+
+    await _db.into(_db.chats).insertOnConflictUpdate(optimistic.toCompanion());
+
+    try {
+      final response = await _dio.post(
+        '/contacts/$contactUuid/reaction',
+        data: <String, dynamic>{'wam_id': wamId, 'emoji': emoji},
+      );
+
+      if (response.data['success'] == true) {
+        if (response.data['message'] != null) {
+          final sent = Chat.fromJson(response.data['message']);
+          await _db.transaction(() async {
+            await _db.deleteChat(localId);
+            await _db.into(_db.chats).insertOnConflictUpdate(sent.toCompanion());
+          });
+          return sent;
+        }
+        await _db.updateChatStatus(localId, 'sent');
+        return optimistic.copyWith(status: 'sent');
+      }
+
+      await _db.updateChatStatus(localId, 'failed');
+      throw Exception(response.data['message'] ?? 'Failed to send reaction');
+    } catch (e) {
+      await _db.updateChatStatus(localId, 'failed');
+      rethrow;
+    }
+  }
+
+  static bool _isImageFile(String name) {
+    final ext = name.split('.').last.toLowerCase();
+    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'].contains(ext);
+  }
+
+  static String _guessMediaType(String name) {
+    final ext = name.split('.').last.toLowerCase();
+    if (['mp4', 'mov', 'avi', 'mkv'].contains(ext)) return 'video';
+    if (['mp3', 'ogg', 'opus', 'm4a', 'aac'].contains(ext)) return 'audio';
+    return 'document';
+  }
+
+  Future<Map<String, dynamic>> checkMessageWindow(String contactUuid) async {
+    final response = await _dio.get('/contacts/$contactUuid/message-window');
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Get media files for a contact, grouped by type (images, videos, documents, audio)
+  Future<Map<String, dynamic>> getContactMedia(String contactUuid, {String? type, int page = 1}) async {
+    final params = <String, dynamic>{
+      'page': page,
+      'per_page': 20,
+    };
+    if (type != null) {
+      params['type'] = type;
+    }
+    
+    final response = await _dio.get(
+      '/contacts/$contactUuid/media',
+      queryParameters: params,
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Send a media file (image, video, document, audio) to a contact
   Future<List<ChatData>> getMessagesForContact(int contactId) {
     return (_db.select(_db.chats)
       ..where((tbl) => tbl.contactId.equals(contactId)))
@@ -189,9 +587,9 @@ class ChatRepository {
     final idsToSync = _pendingReadIds.take(_batchSize).toList();
 
     try {
-
-      final payload = {
-        "ids": idsToSync.map((e) => e).toList(), // <-- ensures pure List<int>
+      // Explicitly type as Map<String, dynamic> to allow Dio interceptor to add organization_id
+      final Map<String, dynamic> payload = {
+        "ids": idsToSync,
       };
 
       print("==============");
@@ -239,8 +637,35 @@ class ChatRepository {
     await _syncReadMessages();
   }
 
+  /// Get lightweight unread summary for all contacts
+  /// Returns total unread count and per-contact breakdown
+  Future<UnreadSummary> getUnreadSummary() async {
+    final response = await _dio.get('/chats/unread-summary');
+    final data = response.data;
+    
+    final byContact = <int, int>{};
+    if (data['by_contact'] != null) {
+      (data['by_contact'] as Map<String, dynamic>).forEach((key, value) {
+        byContact[int.parse(key)] = value['unread_count'] as int;
+      });
+    }
+    
+    return UnreadSummary(
+      totalUnread: data['total_unread'] ?? 0,
+      byContact: byContact,
+    );
+  }
+
   void dispose() {
     _debounceTimer?.cancel();
   }
 
+}
+
+/// Lightweight model for unread message summary
+class UnreadSummary {
+  final int totalUnread;
+  final Map<int, int> byContact; // contactId -> unread count
+  
+  UnreadSummary({required this.totalUnread, required this.byContact});
 }

@@ -1,6 +1,7 @@
 // lib/features/auth/application/auth_controller.dart
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:pichat/core/network/error_handler.dart';
 import 'package:pichat/data/repositories/auth_repository.dart';
 

@@ -7,7 +7,7 @@ class MetaMediaService {
 
   Future<String> getMediaUrl(String mediaId, String accessToken) async {
     try {
-      print("====== Fetching media URL for mediaId: $mediaId =====");
+      print("====== Fetching media URL for mediaId: $baseUrl/$mediaId =====");
       print("Using accessToken: ${accessToken.substring(0, 10)}...");
       final response = await _dio.get(
         '$baseUrl/$mediaId',
@@ -20,6 +20,7 @@ class MetaMediaService {
         ),
       );
 
+      print("Media URL response: ${response.data}");
       if (response.statusCode == 200) {
         return response.data['url'];
       }
@@ -38,6 +39,8 @@ class MetaMediaService {
           headers: {'Authorization': 'Bearer $accessToken'},
         ),
       );
+
+      print("============ MediaUrl: $url ============");
 
       if (response.statusCode == 200 && response.data != null) {
         return Uint8List.fromList(response.data!);

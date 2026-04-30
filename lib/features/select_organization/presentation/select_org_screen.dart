@@ -1,4 +1,5 @@
 // lib/screens/select_organization_screen.dart
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/dio_provider.dart';
@@ -44,7 +45,7 @@ class _SelectOrganizationScreenState extends ConsumerState<SelectOrganizationScr
     final router = ref.read(appRouterProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Select Organization')),
+      appBar: AppBar(title: Text('select_org.title'.tr())),
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : ListView.builder(

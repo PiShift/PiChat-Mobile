@@ -7,7 +7,257 @@
     "welcome": "مرحباً بعودتك، {name}"
   },
   "errors": {
-    "network": "لا يوجد اتصال بالإنترنت",
-    "unauthorized": "انتهت الجلسة، الرجاء تسجيل الدخول مجدداً"
+    "timeout": "انتهت مهلة الطلب. حاول مرة أخرى.",
+    "unauthorized": "بيانات اعتماد غير صالحة. يرجى تسجيل الدخول مجدداً.",
+    "not_found": "المورد المطلوب غير موجود.",
+    "server_error": "خطأ في الخادم. حاول لاحقاً.",
+    "network": "لا يوجد اتصال بالإنترنت.",
+    "cancelled": "تم إلغاء الطلب.",
+    "unknown": "حدث خطأ ما."
+  },
+  "common": {
+    "retry": "إعادة المحاولة",
+    "cancel": "إلغاء"
+  },
+  "home": {
+    "nav": {
+      "chats": "المحادثات",
+      "settings": "الإعدادات"
+    }
+  },
+  "chat": {
+    "menu": {
+      "contact_details": "تفاصيل جهة الاتصال",
+      "send_template": "إرسال قالب",
+      "assign_to_agent": "تعيين لوكيل",
+      "change_status": "تغيير الحالة",
+      "close_ticket": "إغلاق التذكرة"
+    },
+    "banner": {
+      "24h_expired": "انتهت نافذة الـ 24 ساعة. يمكنك إرسال القوالب فقط.",
+      "send_template_button": "إرسال قالب"
+    },
+    "input": {
+      "hint": "اكتب / للردود السريعة..."
+    },
+    "attachment": {
+      "sheet_title": "مشاركة",
+      "gallery": "المعرض",
+      "camera": "الكاميرا",
+      "document": "مستند"
+    },
+    "tooltip": {
+      "media_gallery": "معرض الوسائط",
+      "quick_replies": "الردود السريعة"
+    },
+    "snackbar": {
+      "ticket_closed": "تم إغلاق التذكرة",
+      "failed_to_send": "فشل الإرسال: {error}",
+      "assigned_to": "تم التعيين لـ {name}",
+      "failed_to_assign": "فشل التعيين: {error}",
+      "status_changed": "تم تغيير الحالة إلى {status}",
+      "failed_to_update_status": "فشل تحديث الحالة: {error}",
+      "failed_to_close_ticket": "فشل إغلاق التذكرة: {error}",
+      "error_picking_image": "خطأ في اختيار الصورة: {error}",
+      "error_picking_file": "خطأ في اختيار الملف: {error}"
+    },
+    "error": {
+      "loading_messages": "خطأ في تحميل الرسائل: {error}"
+    }
+  },
+  "new_chat": {
+    "title": "محادثة جديدة",
+    "action": {
+      "search": "بحث",
+      "new_contact": "جهة اتصال جديدة"
+    },
+    "search": {
+      "hint": "ابحث بالاسم أو الهاتف..."
+    },
+    "empty": {
+      "no_contacts": "لم يتم العثور على جهات اتصال",
+      "create_contact": "إنشاء جهة اتصال جديدة"
+    },
+    "form": {
+      "subtitle": "أدخل تفاصيل جهة الاتصال لبدء محادثة جديدة.",
+      "phone_label": "رقم الهاتف *",
+      "phone_hint": "+1234567890",
+      "first_name_label": "الاسم الأول (اختياري)",
+      "last_name_label": "الاسم الأخير (اختياري)",
+      "start_chat_button": "بدء المحادثة"
+    },
+    "error": {
+      "phone_required": "رقم الهاتف مطلوب"
+    }
+  },
+  "contact_details": {
+    "title": "تفاصيل جهة الاتصال",
+    "title_editing": "تعديل جهة الاتصال",
+    "section": {
+      "information": "معلومات جهة الاتصال",
+      "ticket_status": "حالة التذكرة"
+    },
+    "field": {
+      "first_name": "الاسم الأول",
+      "last_name": "الاسم الأخير",
+      "phone": "الهاتف",
+      "status": "الحالة",
+      "assigned_to": "مُعيَّن لـ"
+    },
+    "value": {
+      "unassigned": "غير مُعيَّن"
+    },
+    "action": {
+      "assign": "تعيين",
+      "change_status": "الحالة",
+      "send_message": "إرسال رسالة",
+      "view_media": "عرض الوسائط",
+      "block_contact": "حظر جهة الاتصال"
+    },
+    "error": {
+      "load_ticket": "فشل تحميل التذكرة"
+    },
+    "snackbar": {
+      "contact_saved": "تم حفظ جهة الاتصال",
+      "failed_to_save": "فشل الحفظ: {error}",
+      "failed": "فشل: {error}"
+    }
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "section": {
+      "notifications": "الإشعارات",
+      "chat": "المحادثة",
+      "appearance": "المظهر",
+      "account": "الحساب"
+    },
+    "notifications": {
+      "push_title": "الإشعارات الفورية",
+      "push_subtitle": "تلقّي إشعارات للرسائل الجديدة",
+      "sound_title": "الصوت",
+      "sound_subtitle": "تشغيل صوت عند الإشعارات"
+    },
+    "chat": {
+      "enter_to_send_title": "Enter للإرسال",
+      "enter_to_send_subtitle": "اضغط Enter لإرسال الرسائل"
+    },
+    "appearance": {
+      "theme": "السمة",
+      "language": "اللغة"
+    },
+    "account": {
+      "change_password": "تغيير كلمة المرور"
+    },
+    "language": {
+      "english": "English",
+      "french": "Français",
+      "arabic": "العربية"
+    },
+    "password": {
+      "current_label": "كلمة المرور الحالية",
+      "new_label": "كلمة المرور الجديدة",
+      "confirm_label": "تأكيد كلمة المرور",
+      "change_button": "تغيير"
+    },
+    "logout_button": "تسجيل الخروج",
+    "version": "بي شات v{version}",
+    "error": {
+      "load_profile": "فشل تحميل الملف الشخصي"
+    },
+    "snackbar": {
+      "password_changed": "تم تغيير كلمة المرور",
+      "failed_to_update": "فشل التحديث: {error}",
+      "logout_failed": "فشل تسجيل الخروج: {error}"
+    }
+  },
+  "select_org": {
+    "title": "اختر المنظمة"
+  },
+  "templates": {
+    "title": "إرسال قالب",
+    "banner": {
+      "24h_expired": "انتهت نافذة الـ 24 ساعة. يمكنك فقط إرسال القوالب المعتمدة إلى {name}."
+    },
+    "search": {
+      "hint": "ابحث في القوالب..."
+    },
+    "category": {
+      "all": "الكل",
+      "marketing": "تسويق",
+      "utility": "خدمات",
+      "authentication": "مصادقة"
+    },
+    "error": {
+      "load_failed": "فشل تحميل القوالب"
+    },
+    "empty": {
+      "no_templates": "لم يتم العثور على قوالب"
+    },
+    "snackbar": {
+      "sent_successfully": "تم إرسال القالب بنجاح",
+      "failed_to_send": "فشل الإرسال: {error}"
+    },
+    "info": {
+      "no_fields": "لا توجد حقول للملء. اضغط إرسال للتسليم."
+    },
+    "section": {
+      "header_fields": "حقول الرأس",
+      "message_fields": "حقول الرسالة"
+    },
+    "preview": {
+      "label": "معاينة"
+    },
+    "send_button": "إرسال القالب",
+    "attachment": {
+      "image": "مرفق صورة",
+      "video": "مرفق فيديو",
+      "document_attachment": "مرفق مستند",
+      "file": "مرفق ملف",
+      "tap_to_pick": "اضغط لاختيار {type}"
+    },
+    "hint": {
+      "name": "مثال: أحمد الراشد",
+      "date": "مثال: 28 أبريل 2026",
+      "time": "مثال: 14:30",
+      "city": "مثال: دبي",
+      "order_number": "مثال: #12345",
+      "amount": "مثال: 500.00 ريال",
+      "code": "مثال: 123456",
+      "default": "أدخل القيمة…"
+    },
+    "variable": {
+      "message_field": "حقل الرسالة {index}",
+      "header_field": "حقل الرأس {index}"
+    }
+  },
+  "agent_picker": {
+    "title": "تعيين لوكيل",
+    "error": {
+      "load_failed": "فشل تحميل الوكلاء"
+    },
+    "empty": {
+      "no_agents": "لا يوجد وكلاء متاحون"
+    },
+    "active_tickets": "{count} نشط"
+  },
+  "ticket_status": {
+    "title": "تغيير الحالة",
+    "open": "مفتوح",
+    "pending": "معلّق",
+    "closed": "مغلق"
+  },
+  "quick_replies": {
+    "title": "الردود السريعة",
+    "search": {
+      "hint": "ابحث أو اكتب /اختصار..."
+    },
+    "error": {
+      "load_failed": "فشل تحميل الردود السريعة"
+    },
+    "empty": {
+      "no_replies": "لا توجد ردود سريعة متاحة",
+      "no_matches": "لم يتم العثور على ردود مطابقة"
+    },
+    "tip": "نصيحة: اكتب / في المحادثة للوصول السريع للاختصارات"
   }
 }

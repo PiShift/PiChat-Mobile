@@ -6,6 +6,7 @@ import 'package:pichat/data/db/app_database.dart';
 class ChatMedia {
   final int id;
   final int? mediaId;
+  final String? metaId; // WhatsApp media ID
   final String? name;
   final String? path;
   final String? metaUrl;
@@ -17,6 +18,7 @@ class ChatMedia {
   ChatMedia({
     required this.id,
     this.mediaId,
+    this.metaId,
     this.name,
     this.path,
     this.metaUrl,
@@ -30,6 +32,7 @@ class ChatMedia {
   factory ChatMedia.fromJson(Map<String, dynamic> json) => ChatMedia(
     id: json['id'],
     mediaId: json['media_id'],
+    metaId: json['meta_id']?.toString(),
     name: json['name'],
     path: json['path'],
     metaUrl: json['meta_url'],
@@ -43,6 +46,7 @@ class ChatMedia {
   Map<String, dynamic> toJson() => {
     'id': id,
     'media_id': mediaId,
+    'meta_id': metaId,
     'name': name,
     'path': path,
     'meta_url': metaUrl,
@@ -57,6 +61,7 @@ class ChatMedia {
     return ChatMedia(
       id: row.id,
       mediaId: row.mediaId,
+      metaId: row.metaId,
       name: row.name,
       path: row.path,
       metaUrl: row.metaUrl,
@@ -71,6 +76,7 @@ class ChatMedia {
   MediasCompanion toCompanion() => MediasCompanion.insert(
     id: Value(id),
     mediaId: Value(mediaId),
+    metaId: Value(metaId),
     name: Value(name),
     path: Value(path),
     metaUrl: Value(metaUrl),

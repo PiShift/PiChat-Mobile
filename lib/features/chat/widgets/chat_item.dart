@@ -1,21 +1,41 @@
-import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/data/models/chat_model.dart';
+import 'package:pichat/data/models/chat_media_model.dart';
+import 'package:pichat/data/repositories/chat_repository.dart';
+import 'package:pichat/data/repositories/contact_repository.dart';
+import 'package:pichat/features/chat/application/main_controller.dart';
 import 'package:pichat/features/chat/widgets/image_preview.dart';
 
 import 'audio_preview.dart';
 import 'document_preview.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-class ChatMessageItem extends StatelessWidget {
+class ChatMessageItem extends ConsumerWidget {
   final Chat message;
   final bool isUnread;
+  final String contactUuid;
+  /// Reactions to overlay on this bubble. Each entry corresponds to one
+  /// reactor (the contact and/or the current user). Empty list = none.
+  final List<ChatReactionInfo> reactions;
   static const double mediaMaxWidth = 240.0;
   static const double mediaMaxHeight = 280.0;
 
-  const ChatMessageItem({required this.message, this.isUnread = false, super.key});
+  const ChatMessageItem({
+    required this.message,
+    required this.contactUuid,
+    this.isUnread = false,
+    this.reactions = const [],
+    super.key,
+  });
 
   Map<String, dynamic> get metadata {
     try {
@@ -25,32 +45,399 @@ class ChatMessageItem extends StatelessWidget {
     }
   }
 
+  bool get isPending => message.status == 'pending';
+  bool get isFailed => message.status == 'failed';
+
   Widget _buildMediaPreview(BuildContext context, String mediaType) {
-    if (message.media == null) return const SizedBox.shrink();
-    final mediaId = message.media!.id ?? message.id;
+    final localPath = metadata['_localFilePath'] as String?;
 
     switch (mediaType) {
       case 'image':
-        return ImagePreview(media: message.media!, mediaId: mediaId.toString());
+        // Always prefer local file — for pending/sent outbound or downloaded inbound
+        if (localPath != null) {
+          return GestureDetector(
+            onTap: () => _showLocalFullScreen(context, localPath),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              child: Image.file(
+                File(localPath),
+                width: mediaMaxWidth,
+                height: mediaMaxHeight,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => _buildMediaErrorBox(),
+              ),
+            ),
+          );
+        }
+        if (message.media != null) {
+          return ImagePreview(
+            media: message.media!,
+            mediaId: message.media!.id.toString(),
+            contactId: message.contactId.toString(),
+            metaId: message.media!.metaId,
+          );
+        }
+        return const SizedBox.shrink();
+
       case 'audio':
-        return AudioPreview(media: message.media!, mediaId: mediaId.toString());
+        // While the voice note is still uploading the server media row
+        // doesn't exist yet, but we have the locally recorded file. Render
+        // the audio player against the local file so the user sees the
+        // proper voice-note bubble immediately and can even replay it.
+        if (message.media == null) {
+          if (localPath != null) {
+            return AudioPreview(
+              media: ChatMedia(
+                id: -message.id, // synthetic, stable per temp row
+                path: localPath,
+                location: 'local',
+                type: 'audio/mp4',
+              ),
+              mediaId: 'local-${message.id}',
+              contactId: message.contactId.toString(),
+              localFilePath: localPath,
+            );
+          }
+          return const SizedBox.shrink();
+        }
+        return AudioPreview(
+          media: message.media!,
+          mediaId: message.media!.id.toString(),
+          contactId: message.contactId.toString(),
+          metaId: message.media!.metaId,
+          localFilePath: localPath,
+        );
+
       case 'pdf':
       case 'doc':
       case 'docx':
+      case 'document':
       default:
+        // Pending/failed: show file name placeholder
+        if (localPath != null && message.media == null) {
+          return Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.insert_drive_file, size: 32, color: Colors.blueGrey),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    localPath.split('/').last,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        if (message.media == null) return const SizedBox.shrink();
         return DocumentPreview(
           media: message.media!,
-          mediaId: mediaId.toString(),
+          mediaId: message.media!.id.toString(),
+          metaId: message.media!.metaId,
           mediaType: mediaType,
-          contactId: message.contactId.toString()
+          contactId: message.contactId.toString(),
         );
     }
   }
 
-  void _showFullScreenMedia(BuildContext context) {
+  Widget _buildMediaErrorBox() {
+    return Container(
+      width: mediaMaxWidth,
+      height: mediaMaxHeight,
+      color: Colors.grey[200],
+      child: const Center(child: Icon(Icons.broken_image, size: 48, color: Colors.grey)),
+    );
+  }
+
+  /// Render a tappable static map preview for a `location` message.
+  /// Uses OpenStreetMap's static-tile-free service to keep things
+  /// dependency-free; tapping the bubble opens the user's preferred maps app.
+  Widget _buildLocationPreview(BuildContext context) {
+    final loc = (metadata['location'] as Map?) ?? const {};
+    final lat = double.tryParse('${loc['latitude']}');
+    final lng = double.tryParse('${loc['longitude']}');
+    if (lat == null || lng == null) return const SizedBox.shrink();
+    final name = loc['name'] as String?;
+    final address = loc['address'] as String?;
+
+    return GestureDetector(
+      onTap: () async {
+        final uri = Uri.parse(
+          'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+        );
+        try {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            child: Container(
+              width: mediaMaxWidth,
+              height: 140,
+              color: const Color(0xFFE5E3DF),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Icon(Icons.map_rounded,
+                      size: 64, color: Color(0xFFB0B0B0)),
+                  Positioned.fill(
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.55),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.location_on,
+                                color: Colors.white, size: 14),
+                            SizedBox(width: 4),
+                            Text(
+                              'Open in Maps',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (name != null || address != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (name != null)
+                    Text(
+                      name,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  if (address != null)
+                    Text(
+                      address,
+                      style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Render shared contact card(s). Each card shows the formatted name and
+  /// the first phone number if present.
+  Widget _buildContactsPreview(BuildContext context, WidgetRef ref) {
+    final raw = metadata['contacts'];
+    final contacts = (raw is List) ? raw : const [];
+    if (contacts.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: contacts.map<Widget>((c) {
+        final map = (c as Map?) ?? const {};
+        final nameMap = (map['name'] as Map?) ?? const {};
+        final formatted =
+            (nameMap['formatted_name'] as String?)?.trim().isNotEmpty == true
+                ? nameMap['formatted_name'] as String
+                : ([nameMap['first_name'], nameMap['last_name']]
+                    .whereType<String>()
+                    .where((s) => s.trim().isNotEmpty)
+                    .join(' '));
+        final phones = (map['phones'] as List?) ?? const [];
+        String? firstPhone;
+        if (phones.isNotEmpty) {
+          final first = phones.first;
+          if (first is Map) {
+            firstPhone = first['phone'] as String?;
+          }
+        }
+        return Container(
+          width: mediaMaxWidth,
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: const Color(0xFFE7F4EE),
+                      child: Text(
+                        formatted.isNotEmpty
+                            ? formatted[0].toUpperCase()
+                            : '?',
+                        style: const TextStyle(
+                            color: Color(0xFF34A853),
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            formatted.isEmpty ? 'Contact' : formatted,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          if (firstPhone != null)
+                            Text(
+                              firstPhone,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  color: Colors.grey[700], fontSize: 12),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (firstPhone != null) ...[
+                const SizedBox(height: 8),
+                const Divider(height: 1),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _ContactActionButton(
+                        icon: Icons.chat_bubble_outline,
+                        label: 'Message',
+                        color: const Color(0xFF25D366),
+                        onTap: () => _openChatWithContact(
+                          context,
+                          ref,
+                          phone: firstPhone!,
+                          formattedName: formatted,
+                          firstName: nameMap['first_name'] as String?,
+                          lastName: nameMap['last_name'] as String?,
+                        ),
+                      ),
+                    ),
+                    Container(
+                        width: 1, height: 28, color: Colors.grey[300]),
+                    Expanded(
+                      child: _ContactActionButton(
+                        icon: Icons.phone_outlined,
+                        label: 'Call',
+                        color: const Color(0xFF34A853),
+                        onTap: () async {
+                          final uri = Uri.parse('tel:$firstPhone');
+                          try {
+                            await launchUrl(uri);
+                          } catch (_) {}
+                        },
+                      ),
+                    ),
+                    Container(
+                        width: 1, height: 28, color: Colors.grey[300]),
+                    Expanded(
+                      child: _ContactActionButton(
+                        icon: Icons.copy_outlined,
+                        label: 'Copy',
+                        color: Colors.blueGrey,
+                        onTap: () async {
+                          await Clipboard.setData(
+                              ClipboardData(text: firstPhone!));
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Phone number copied'),
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Future<void> _openChatWithContact(
+    BuildContext context,
+    WidgetRef ref, {
+    required String phone,
+    required String formattedName,
+    String? firstName,
+    String? lastName,
+  }) async {
+    String? fn = firstName?.trim();
+    String? ln = lastName?.trim();
+    if ((fn == null || fn.isEmpty) && (ln == null || ln.isEmpty)) {
+      final parts = formattedName.trim().split(RegExp(r'\s+'));
+      if (parts.isNotEmpty && parts.first.isNotEmpty) fn = parts.first;
+      if (parts.length > 1) ln = parts.sublist(1).join(' ');
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
+
+    // Lightweight blocking spinner so the user knows something's
+    // happening while we hit the find/create endpoints.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(strokeWidth: 2.5),
+      ),
+    );
+
+    try {
+      final repo = ref.read(contactRepositoryProvider);
+      final contact = await repo.findOrCreateByPhone(
+        phone: phone,
+        firstName: (fn != null && fn.isNotEmpty) ? fn : null,
+        lastName: (ln != null && ln.isNotEmpty) ? ln : null,
+      );
+      ref.read(mainDataProvider.notifier).addOrUpdateContact(contact);
+      // Pop the spinner before navigating so it doesn't sit on top of
+      // the new screen.
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      router.push('/home/chats/detail', extra: contact);
+    } catch (e) {
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not open chat: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _showLocalFullScreen(BuildContext context, String localPath) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => Scaffold(
+        builder: (_) => Scaffold(
           backgroundColor: Colors.black,
           appBar: AppBar(
             backgroundColor: Colors.black,
@@ -58,10 +445,7 @@ class ChatMessageItem extends StatelessWidget {
           ),
           body: Center(
             child: InteractiveViewer(
-              child: Image.network(
-                message.media!.path ?? '',
-                fit: BoxFit.contain,
-              ),
+              child: Image.file(File(localPath), fit: BoxFit.contain),
             ),
           ),
         ),
@@ -81,10 +465,8 @@ class ChatMessageItem extends StatelessWidget {
 
     switch (type) {
       case 'url':
-      // Handle URL button - implement URL launching
         break;
       case 'phone':
-      // Handle phone button - implement phone dialing
         break;
       case 'copy':
         if (payload != null) {
@@ -95,76 +477,325 @@ class ChatMessageItem extends StatelessWidget {
         }
         break;
       case 'reply':
-      // Handle reply button - implement reply functionality
         break;
       default:
-      // Default action or log unknown button type
-        print('Unknown button type: $type');
+        break;
+    }
+  }
+
+  /// Overlays a semi-transparent layer with an error icon + retry button
+  /// over the message bubble for outbound failed messages. Pending uses a
+  /// subtle clock indicator in the footer instead so the user still sees
+  /// the actual content (image / audio player / text).
+  Widget _buildStatusOverlay(BuildContext context, WidgetRef ref) {
+    if (!isFailed) return const SizedBox.shrink();
+
+    return Positioned.fill(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          color: Colors.black38,
+          child: Center(
+            child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.redAccent, size: 28),
+                      const SizedBox(height: 4),
+                      GestureDetector(
+                        onTap: () => _retry(context, ref),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            'common.retry'.tr(),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Status tick row shown below outbound messages that have been delivered.
+  Widget _buildStatusTick() {
+    if (message.type != 'outbound') return const SizedBox.shrink();
+    if (isFailed) return const SizedBox.shrink(); // handled by overlay
+    if (isPending) {
+      // Clock icon — "sending…" without obscuring the bubble content.
+      return const Icon(Icons.access_time, size: 12, color: Colors.black54);
+    }
+
+    IconData icon;
+    Color color;
+
+    switch (message.status) {
+      case 'read':
+        icon = Icons.done_all;
+        color = Colors.blue;
+        break;
+      case 'delivered':
+        icon = Icons.done_all;
+        color = Colors.grey;
+        break;
+      default: // 'sent'
+        icon = Icons.done;
+        color = Colors.grey;
+    }
+
+    return Icon(icon, size: 14, color: color);
+  }
+
+  /// Local-time HH:MM (24h) for the message bubble.
+  String _formatTime(DateTime dt) {
+    final local = dt.toLocal();
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  Future<void> _retry(BuildContext context, WidgetRef ref) async {
+    final chatRepo = ref.read(chatRepositoryProvider);
+    final org = ref.read(organizationProvider);
+    final orgId = org?.id ?? 0;
+    final localPath = metadata['_localFilePath'] as String?;
+    final type = metadata['type'] ?? 'text';
+    final mediaMime = message.media?.type ?? '';
+    final isMediaMessage = localPath != null ||
+        message.mediaId != null ||
+        mediaMime.startsWith('audio/') ||
+        mediaMime.startsWith('image/') ||
+        mediaMime.startsWith('video/') ||
+        ['image', 'audio', 'video', 'document'].contains(type);
+
+    if (isMediaMessage) {
+      if (localPath == null || !File(localPath).existsSync()) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('chat.media.retry_unavailable'.tr()),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+      final file = File(localPath);
+      unawaited(chatRepo.sendMediaMessage(
+        contactUuid,
+        file,
+        caption: metadata[type]?['caption'] as String?,
+        contactId: message.contactId,
+        orgId: orgId,
+        tempId: message.id, // reuse the same temp row
+      ));
+    } else {
+      // Text retry
+      final body = metadata['text']?['body'] as String? ?? '';
+      if (body.trim().isEmpty) return;
+      unawaited(chatRepo.sendTextMessage(
+        contactUuid,
+        body,
+        contactId: message.contactId,
+        orgId: orgId,
+        tempId: message.id,
+      ));
     }
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isInbound = message.type == 'inbound';
-    final type = metadata['type'] ?? 'text';
+    var type = metadata['type'] ?? 'text';
+    // Backend mis-classifies .m4a/.aac (audio inside an MP4 container) as
+    // "video" because PHP's mime sniffer reports them as video/mp4. When
+    // the actual media row's mime starts with audio/, render the audio
+    // player even if the metadata says otherwise.
+    final mediaMime = message.media?.type ?? '';
+    if (mediaMime.startsWith('audio/')) {
+      type = 'audio';
+    }
     final header = metadata['header']?['text'];
-    final body = metadata['text']?['body'];
+    // Text body for text messages
+    final body = metadata['text']?['body'] as String?;
+    // Caption for media messages (stored under metadata[type]['caption']).
+    // Some types (e.g. `contacts`) have a List under `metadata[type]` so we
+    // must guard with `is Map` before reading `caption`.
+    final typeNode = metadata[type];
+    final caption = typeNode is Map ? typeNode['caption'] as String? : null;
     final buttons = metadata['buttons'] ?? [];
+
+    final hasMedia = message.media != null || metadata['_localFilePath'] != null;
+    final isLocation = type == 'location';
+    final isContacts = type == 'contacts';
+    // Text to show below media (caption) or as standalone message (body)
+    final displayText = hasMedia ? caption : body;
+    final standaloneBody = (!hasMedia && body != null && displayText == null) ? body : null;
+    final mainText = displayText?.isNotEmpty == true ? displayText : standaloneBody;
+
+    final footer = _buildFooter();
+
+    // Anchor key for the floating reaction picker so it can be positioned
+    // directly above the long-pressed bubble (WhatsApp-style).
+    final bubbleKey = GlobalKey();
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      alignment: isInbound ? Alignment.centerLeft : Alignment.centerRight,
+      // Use directional alignment so the bubble flips correctly in RTL.
+      alignment: isInbound
+          ? AlignmentDirectional.centerStart
+          : AlignmentDirectional.centerEnd,
       child: Column(
         crossAxisAlignment: isInbound ? CrossAxisAlignment.start : CrossAxisAlignment.end,
         children: [
-          ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: mediaMaxWidth),
-            child: Container(
-              decoration: BoxDecoration(
-                color: isInbound ? Colors.white : Colors.lightBlue[100],
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: isInbound ? CrossAxisAlignment.start : CrossAxisAlignment.end,
-                children: [
-                  if (message.media != null) _buildMediaPreview(context, type),
-                  if (header != null || body != null)
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Column(
-                        crossAxisAlignment: isInbound ? CrossAxisAlignment.start : CrossAxisAlignment.end,
-                        children: [
-                          if (header != null)
-                            Text(header, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          if (body != null) Text(body),
-                        ],
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              GestureDetector(
+                // Long-press any sent or delivered message that has a wamId
+                // to react to it. Pending/failed outbound bubbles have no
+                // wamId yet so they're naturally excluded.
+                onLongPress: message.wamId != null
+                    ? () => _showReactionPicker(context, ref, bubbleKey)
+                    : null,
+                child: ConstrainedBox(
+                  key: bubbleKey,
+                constraints: BoxConstraints(maxWidth: mediaMaxWidth),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isInbound ? Colors.white : Colors.lightBlue[100],
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
                       ),
-                    ),
-                  if (buttons.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Wrap(
-                        spacing: 4,
-                        children: List.generate(
-                          buttons.length,
-                              (i) => ElevatedButton(
-                            onPressed: () => handleButton(context, buttons[i]),
-                            child: Text(buttons[i]['text'] ?? 'Button'),
+                    ],
+                  ),
+                  child: Column(
+                    // Text content always reads from start (left in LTR, right
+                    // in RTL). The footer row pins itself to end below.
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (hasMedia) _buildMediaPreview(context, type),
+                      if (isLocation) _buildLocationPreview(context),
+                      if (isContacts) _buildContactsPreview(context, ref),
+                      if (header != null || mainText != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (header != null)
+                                Text(
+                                  header,
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                  textAlign: TextAlign.start,
+                                ),
+                              if (mainText != null)
+                                Text(
+                                  mainText,
+                                  style: const TextStyle(fontSize: 14),
+                                  textAlign: TextAlign.start,
+                                ),
+                            ],
                           ),
                         ),
+                      if (buttons.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Wrap(
+                            spacing: 4,
+                            children: List.generate(
+                              buttons.length,
+                              (i) => ElevatedButton(
+                                onPressed: () => handleButton(context, buttons[i]),
+                                child: Text(buttons[i]['text'] ?? 'Button'),
+                              ),
+                            ),
+                          ),
+                        ),
+                      // Footer (time + tick) sits on its own row at the
+                      // bottom-end of the bubble (right in LTR, left in RTL).
+                      Padding(
+                        padding: const EdgeInsetsDirectional.fromSTEB(8, 0, 8, 4),
+                        child: Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: footer,
+                        ),
                       ),
-                    ),
-                ],
+                    ],
+                  ),
+                ),
               ),
-            ),
+              ),
+              // Status overlay (spinner / error+retry) for outbound pending/failed
+              if (!isInbound) _buildStatusOverlay(context, ref),
+              // Floating reaction pill — overlaps the bubble's bottom edge
+              // on the outward side (left for inbound, right for outbound),
+              // matching WhatsApp. Holds every reactor's emoji side-by-side.
+              if (reactions.isNotEmpty)
+                Positioned(
+                  bottom: -16,
+                  left: isInbound ? 8 : null,
+                  right: isInbound ? null : 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.12),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final r in reactions)
+                          Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 1),
+                            child: Text(
+                              r.emoji,
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                          ),
+                        if (reactions.length > 1) ...[
+                          const SizedBox(width: 2),
+                          Text(
+                            '${reactions.length}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.black54,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+            ],
           ),
+          // Extra spacing so the reaction pill doesn't visually collide with
+          // the next bubble.
+          if (reactions.isNotEmpty) const SizedBox(height: 14),
           if (isUnread)
             Padding(
               padding: const EdgeInsets.only(top: 2, left: 8, right: 8),
@@ -178,6 +809,280 @@ class ChatMessageItem extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  /// Time + status tick. Sits inside the bubble, bottom-right, in normal
+  /// (non-overlapping) flow — so it never covers text, captions, or media.
+  Widget _buildFooter() {
+    final isInbound = message.type == 'inbound';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          _formatTime(message.createdAt),
+          style: const TextStyle(fontSize: 10, color: Colors.black54),
+        ),
+        if (!isInbound)
+          Padding(
+            padding: const EdgeInsets.only(left: 3),
+            child: _buildStatusTick(),
+          ),
+      ],
+    );
+  }
+
+  /// WhatsApp-style reaction picker. Shows a floating pill positioned just
+  /// above the long-pressed bubble with 6 quick emojis + a `+` button that
+  /// opens a full emoji sheet. The whole UI is rendered through an Overlay
+  /// (no modal bottom sheet) so it stays visually attached to the bubble.
+  Future<void> _showReactionPicker(
+    BuildContext context,
+    WidgetRef ref,
+    GlobalKey bubbleKey,
+  ) async {
+    HapticFeedback.selectionClick();
+
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final renderBox = bubbleKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+
+    final bubblePos = renderBox.localToGlobal(Offset.zero);
+    final bubbleSize = renderBox.size;
+    final screen = MediaQuery.of(context).size;
+
+    // Pill width is ~ 6 * 44 + plus btn + padding ≈ 320. Clamp inside screen.
+    const pillWidth = 320.0;
+    const pillHeight = 56.0;
+    double left = bubblePos.dx + (bubbleSize.width / 2) - (pillWidth / 2);
+    left = left.clamp(8.0, screen.width - pillWidth - 8.0);
+
+    // Prefer placing the pill above the bubble; fall back to below if there
+    // isn't enough headroom (e.g. message at top of viewport).
+    double top = bubblePos.dy - pillHeight - 8;
+    if (top < MediaQuery.of(context).padding.top + 8) {
+      top = bubblePos.dy + bubbleSize.height + 8;
+    }
+
+    final completer = Completer<String?>();
+    late OverlayEntry entry;
+
+    void close([String? value]) {
+      if (entry.mounted) entry.remove();
+      if (!completer.isCompleted) completer.complete(value);
+    }
+
+    entry = OverlayEntry(
+      builder: (_) => Stack(
+        children: [
+          // Tap outside to dismiss without picking.
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => close(null),
+            ),
+          ),
+          Positioned(
+            left: left,
+            top: top,
+            width: pillWidth,
+            child: _ReactionPill(
+              onPick: (emoji) => close(emoji),
+              onMore: () async {
+                close(null);
+                final picked = await _showFullEmojiSheet(context);
+                if (picked != null && picked.isNotEmpty) {
+                  await _dispatchReaction(context, ref, picked);
+                }
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+    overlay.insert(entry);
+
+    final picked = await completer.future;
+    if (picked == null) return;
+    if (!context.mounted) return;
+    await _dispatchReaction(context, ref, picked);
+  }
+
+  Future<void> _dispatchReaction(
+    BuildContext context,
+    WidgetRef ref,
+    String emoji,
+  ) async {
+    final wamId = message.wamId;
+    if (wamId == null) return;
+
+    final orgId = ref.read(organizationProvider)?.id ?? message.orgId;
+    final chatRepo = ref.read(chatRepositoryProvider);
+
+    try {
+      await chatRepo.sendReaction(
+        contactUuid,
+        wamId: wamId,
+        emoji: emoji,
+        contactId: message.contactId,
+        orgId: orgId,
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send reaction: $e')),
+      );
+    }
+  }
+
+  /// Full-screen emoji sheet for picking any emoji when the user taps `+`
+  /// on the quick reaction pill.
+  Future<String?> _showFullEmojiSheet(BuildContext context) {
+    const allEmojis = [
+      '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩',
+      '😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐',
+      '🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒',
+      '🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕',
+      '😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱',
+      '😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','💩','🤡',
+      '👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','👇','☝️','✋','🤚','🖐️',
+      '🖖','👋','🤝','🙏','💪','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️',
+      '🔥','✨','🎉','🎊','💯','✅','❌','⭐','🌟','💫','💥','💢','💦','💨','🕊️','🦋',
+    ];
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => SafeArea(
+        child: SizedBox(
+          height: 360,
+          child: GridView.builder(
+            padding: const EdgeInsets.all(12),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 8,
+              mainAxisSpacing: 4,
+              crossAxisSpacing: 4,
+            ),
+            itemCount: allEmojis.length,
+            itemBuilder: (ctx, i) => InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => Navigator.of(ctx).pop(allEmojis[i]),
+              child: Center(
+                child: Text(allEmojis[i], style: const TextStyle(fontSize: 26)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One reaction overlaid on a chat bubble.
+class ChatReactionInfo {
+  const ChatReactionInfo({required this.emoji, required this.fromMe});
+  final String emoji;
+  final bool fromMe;
+}
+
+/// Compact action button used inside the shared-contact bubble
+/// (Message / Call / Copy).
+class _ContactActionButton extends StatelessWidget {
+  const _ContactActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Floating quick-reaction pill: 6 suggested emojis + a `+` button.
+class _ReactionPill extends StatelessWidget {
+  const _ReactionPill({required this.onPick, required this.onMore});
+  final ValueChanged<String> onPick;
+  final VoidCallback onMore;
+
+  @override
+  Widget build(BuildContext context) {
+    const quick = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.18),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            for (final e in quick)
+              InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () => onPick(e),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Text(e, style: const TextStyle(fontSize: 24)),
+                ),
+              ),
+            InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: onMore,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 2),
+                padding: const EdgeInsets.all(6),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF1F1F1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.add, size: 22, color: Colors.black54),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

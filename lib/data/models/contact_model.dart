@@ -14,6 +14,7 @@ class Contact {
   final String phone;
   final String formattedPhone;
   late DateTime? latestChatCreatedAt;
+  final DateTime? lastInboundChatAt;
   final String? avatar;
   final int unreadCount;
   final int unreadMessages;
@@ -32,6 +33,7 @@ class Contact {
     required this.phone,
     required this.formattedPhone,
     this.latestChatCreatedAt,
+    this.lastInboundChatAt,
     this.avatar,
     required this.unreadCount,
     required this.unreadMessages,
@@ -42,24 +44,55 @@ class Contact {
   });
 
   // ✅ From API JSON
-  factory Contact.fromJson(Map<String, dynamic> json) => Contact(
-    id: json['id'],
-    uuid: json['uuid'],
-    orgId: json['organization_id'],
-    firstName: json['first_name'],
-    lastName: json['last_name'],
-    fullName: json['full_name'],
-    phone: json['phone'],
-    formattedPhone: json['formatted_phone_number'],
-    latestChatCreatedAt: json['latest_chat_created_at'] != null ? DateTime.parse(json['latest_chat_created_at']) : null,
-    avatar: json['avatar'],
-    unreadCount: json['unread_count'],
-    unreadMessages: json['unread_messages'],
-    lastChatId: json['last_chat'] != null ? json['last_chat']['id'] : null,
-    lastChat: json['last_chat'] != null ? Chat.fromJson(json['last_chat']) : null,
-    createdAt: DateTime.parse(json['created_at']),
-    updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
-  );
+  factory Contact.fromJson(Map<String, dynamic> json) {
+    // Handle both old 'last_chat' and new 'last_message' formats
+    Chat? lastChat;
+    int? lastChatId;
+    
+    if (json['last_chat'] != null) {
+      // Old format: full chat object
+      lastChat = Chat.fromJson(json['last_chat']);
+      lastChatId = json['last_chat']['id'];
+    } else if (json['last_message'] != null) {
+      // New format: simplified preview - create a minimal Chat object
+      final lm = json['last_message'];
+      lastChatId = lm['id'];
+      lastChat = Chat.fromPreview(lm, json['id']);
+    }
+    
+    // Parse last_message_at or latest_chat_created_at
+    DateTime? latestChatCreatedAt;
+    if (json['last_message_at'] != null) {
+      latestChatCreatedAt = DateTime.parse(json['last_message_at']);
+    } else if (json['latest_chat_created_at'] != null) {
+      latestChatCreatedAt = DateTime.parse(json['latest_chat_created_at']);
+    }
+    
+    DateTime? lastInboundChatAt;
+    if (json['last_inbound_chat_at'] != null) {
+      lastInboundChatAt = DateTime.parse(json['last_inbound_chat_at']);
+    }
+
+    return Contact(
+      id: json['id'],
+      uuid: json['uuid'],
+      orgId: json['organization_id'] ?? 0,
+      firstName: json['first_name'],
+      lastName: json['last_name'],
+      fullName: json['full_name'],
+      phone: json['phone'] ?? '',
+      formattedPhone: json['formatted_phone_number'] ?? json['phone'] ?? '',
+      latestChatCreatedAt: latestChatCreatedAt,
+      lastInboundChatAt: lastInboundChatAt,
+      avatar: json['avatar'],
+      unreadCount: json['unread_count'] ?? 0,
+      unreadMessages: json['unread_messages'] ?? json['unread_count'] ?? 0,
+      lastChatId: lastChatId,
+      lastChat: lastChat,
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+      updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
+    );
+  }
 
   // ✅ To API JSON
   Map<String, dynamic> toJson() => {
@@ -93,6 +126,7 @@ class Contact {
       phone: row.phone,
       formattedPhone: row.formattedPhone,
       latestChatCreatedAt: row.latestChatCreatedAt,
+      lastInboundChatAt: null,
       avatar: row.avatar,
       unreadCount: row.unreadCount,
       unreadMessages: row.unreadMessages,
@@ -131,6 +165,7 @@ class Contact {
     String? phone,
     String? formattedPhone,
     DateTime? latestChatCreatedAt,
+    DateTime? lastInboundChatAt,
     String? avatar,
     int? unreadCount,
     int? unreadMessages,
@@ -149,6 +184,7 @@ class Contact {
       phone: phone ?? this.phone,
       formattedPhone: formattedPhone ?? this.formattedPhone,
       latestChatCreatedAt: latestChatCreatedAt ?? this.latestChatCreatedAt,
+      lastInboundChatAt: lastInboundChatAt ?? this.lastInboundChatAt,
       avatar: avatar ?? this.avatar,
       unreadCount: unreadCount ?? this.unreadCount,
       unreadMessages: unreadMessages ?? this.unreadMessages,

@@ -2364,6 +2364,11 @@ class $MediasTable extends Medias with TableInfo<$MediasTable, MediaData> {
   late final GeneratedColumn<int> mediaId = GeneratedColumn<int>(
       'media_id', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _metaIdMeta = const VerificationMeta('metaId');
+  @override
+  late final GeneratedColumn<String> metaId = GeneratedColumn<String>(
+      'meta_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
   late final GeneratedColumn<String> name = GeneratedColumn<String>(
@@ -2403,8 +2408,18 @@ class $MediasTable extends Medias with TableInfo<$MediasTable, MediaData> {
       'created_at', aliasedName, true,
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
-  List<GeneratedColumn> get $columns =>
-      [id, mediaId, name, path, metaUrl, location, type, size, createdAt];
+  List<GeneratedColumn> get $columns => [
+        id,
+        mediaId,
+        metaId,
+        name,
+        path,
+        metaUrl,
+        location,
+        type,
+        size,
+        createdAt
+      ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -2421,6 +2436,10 @@ class $MediasTable extends Medias with TableInfo<$MediasTable, MediaData> {
     if (data.containsKey('media_id')) {
       context.handle(_mediaIdMeta,
           mediaId.isAcceptableOrUnknown(data['media_id']!, _mediaIdMeta));
+    }
+    if (data.containsKey('meta_id')) {
+      context.handle(_metaIdMeta,
+          metaId.isAcceptableOrUnknown(data['meta_id']!, _metaIdMeta));
     }
     if (data.containsKey('name')) {
       context.handle(
@@ -2463,6 +2482,8 @@ class $MediasTable extends Medias with TableInfo<$MediasTable, MediaData> {
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       mediaId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}media_id']),
+      metaId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}meta_id']),
       name: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}name']),
       path: attachedDatabase.typeMapping
@@ -2489,6 +2510,7 @@ class $MediasTable extends Medias with TableInfo<$MediasTable, MediaData> {
 class MediaData extends DataClass implements Insertable<MediaData> {
   final int id;
   final int? mediaId;
+  final String? metaId;
   final String? name;
   final String? path;
   final String? metaUrl;
@@ -2499,6 +2521,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
   const MediaData(
       {required this.id,
       this.mediaId,
+      this.metaId,
       this.name,
       this.path,
       this.metaUrl,
@@ -2512,6 +2535,9 @@ class MediaData extends DataClass implements Insertable<MediaData> {
     map['id'] = Variable<int>(id);
     if (!nullToAbsent || mediaId != null) {
       map['media_id'] = Variable<int>(mediaId);
+    }
+    if (!nullToAbsent || metaId != null) {
+      map['meta_id'] = Variable<String>(metaId);
     }
     if (!nullToAbsent || name != null) {
       map['name'] = Variable<String>(name);
@@ -2543,6 +2569,8 @@ class MediaData extends DataClass implements Insertable<MediaData> {
       mediaId: mediaId == null && nullToAbsent
           ? const Value.absent()
           : Value(mediaId),
+      metaId:
+          metaId == null && nullToAbsent ? const Value.absent() : Value(metaId),
       name: name == null && nullToAbsent ? const Value.absent() : Value(name),
       path: path == null && nullToAbsent ? const Value.absent() : Value(path),
       metaUrl: metaUrl == null && nullToAbsent
@@ -2565,6 +2593,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
     return MediaData(
       id: serializer.fromJson<int>(json['id']),
       mediaId: serializer.fromJson<int?>(json['mediaId']),
+      metaId: serializer.fromJson<String?>(json['metaId']),
       name: serializer.fromJson<String?>(json['name']),
       path: serializer.fromJson<String?>(json['path']),
       metaUrl: serializer.fromJson<String?>(json['metaUrl']),
@@ -2580,6 +2609,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'mediaId': serializer.toJson<int?>(mediaId),
+      'metaId': serializer.toJson<String?>(metaId),
       'name': serializer.toJson<String?>(name),
       'path': serializer.toJson<String?>(path),
       'metaUrl': serializer.toJson<String?>(metaUrl),
@@ -2593,6 +2623,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
   MediaData copyWith(
           {int? id,
           Value<int?> mediaId = const Value.absent(),
+          Value<String?> metaId = const Value.absent(),
           Value<String?> name = const Value.absent(),
           Value<String?> path = const Value.absent(),
           Value<String?> metaUrl = const Value.absent(),
@@ -2603,6 +2634,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
       MediaData(
         id: id ?? this.id,
         mediaId: mediaId.present ? mediaId.value : this.mediaId,
+        metaId: metaId.present ? metaId.value : this.metaId,
         name: name.present ? name.value : this.name,
         path: path.present ? path.value : this.path,
         metaUrl: metaUrl.present ? metaUrl.value : this.metaUrl,
@@ -2615,6 +2647,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
     return MediaData(
       id: data.id.present ? data.id.value : this.id,
       mediaId: data.mediaId.present ? data.mediaId.value : this.mediaId,
+      metaId: data.metaId.present ? data.metaId.value : this.metaId,
       name: data.name.present ? data.name.value : this.name,
       path: data.path.present ? data.path.value : this.path,
       metaUrl: data.metaUrl.present ? data.metaUrl.value : this.metaUrl,
@@ -2630,6 +2663,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
     return (StringBuffer('MediaData(')
           ..write('id: $id, ')
           ..write('mediaId: $mediaId, ')
+          ..write('metaId: $metaId, ')
           ..write('name: $name, ')
           ..write('path: $path, ')
           ..write('metaUrl: $metaUrl, ')
@@ -2642,14 +2676,15 @@ class MediaData extends DataClass implements Insertable<MediaData> {
   }
 
   @override
-  int get hashCode => Object.hash(
-      id, mediaId, name, path, metaUrl, location, type, size, createdAt);
+  int get hashCode => Object.hash(id, mediaId, metaId, name, path, metaUrl,
+      location, type, size, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is MediaData &&
           other.id == this.id &&
           other.mediaId == this.mediaId &&
+          other.metaId == this.metaId &&
           other.name == this.name &&
           other.path == this.path &&
           other.metaUrl == this.metaUrl &&
@@ -2662,6 +2697,7 @@ class MediaData extends DataClass implements Insertable<MediaData> {
 class MediasCompanion extends UpdateCompanion<MediaData> {
   final Value<int> id;
   final Value<int?> mediaId;
+  final Value<String?> metaId;
   final Value<String?> name;
   final Value<String?> path;
   final Value<String?> metaUrl;
@@ -2672,6 +2708,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
   const MediasCompanion({
     this.id = const Value.absent(),
     this.mediaId = const Value.absent(),
+    this.metaId = const Value.absent(),
     this.name = const Value.absent(),
     this.path = const Value.absent(),
     this.metaUrl = const Value.absent(),
@@ -2683,6 +2720,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
   MediasCompanion.insert({
     this.id = const Value.absent(),
     this.mediaId = const Value.absent(),
+    this.metaId = const Value.absent(),
     this.name = const Value.absent(),
     this.path = const Value.absent(),
     this.metaUrl = const Value.absent(),
@@ -2694,6 +2732,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
   static Insertable<MediaData> custom({
     Expression<int>? id,
     Expression<int>? mediaId,
+    Expression<String>? metaId,
     Expression<String>? name,
     Expression<String>? path,
     Expression<String>? metaUrl,
@@ -2705,6 +2744,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (mediaId != null) 'media_id': mediaId,
+      if (metaId != null) 'meta_id': metaId,
       if (name != null) 'name': name,
       if (path != null) 'path': path,
       if (metaUrl != null) 'meta_url': metaUrl,
@@ -2718,6 +2758,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
   MediasCompanion copyWith(
       {Value<int>? id,
       Value<int?>? mediaId,
+      Value<String?>? metaId,
       Value<String?>? name,
       Value<String?>? path,
       Value<String?>? metaUrl,
@@ -2728,6 +2769,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
     return MediasCompanion(
       id: id ?? this.id,
       mediaId: mediaId ?? this.mediaId,
+      metaId: metaId ?? this.metaId,
       name: name ?? this.name,
       path: path ?? this.path,
       metaUrl: metaUrl ?? this.metaUrl,
@@ -2746,6 +2788,9 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
     }
     if (mediaId.present) {
       map['media_id'] = Variable<int>(mediaId.value);
+    }
+    if (metaId.present) {
+      map['meta_id'] = Variable<String>(metaId.value);
     }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
@@ -2776,6 +2821,7 @@ class MediasCompanion extends UpdateCompanion<MediaData> {
     return (StringBuffer('MediasCompanion(')
           ..write('id: $id, ')
           ..write('mediaId: $mediaId, ')
+          ..write('metaId: $metaId, ')
           ..write('name: $name, ')
           ..write('path: $path, ')
           ..write('metaUrl: $metaUrl, ')
@@ -4212,6 +4258,7 @@ typedef $$ContactsTableProcessedTableManager = ProcessedTableManager<
 typedef $$MediasTableCreateCompanionBuilder = MediasCompanion Function({
   Value<int> id,
   Value<int?> mediaId,
+  Value<String?> metaId,
   Value<String?> name,
   Value<String?> path,
   Value<String?> metaUrl,
@@ -4223,6 +4270,7 @@ typedef $$MediasTableCreateCompanionBuilder = MediasCompanion Function({
 typedef $$MediasTableUpdateCompanionBuilder = MediasCompanion Function({
   Value<int> id,
   Value<int?> mediaId,
+  Value<String?> metaId,
   Value<String?> name,
   Value<String?> path,
   Value<String?> metaUrl,
@@ -4246,6 +4294,9 @@ class $$MediasTableFilterComposer
 
   ColumnFilters<int> get mediaId => $composableBuilder(
       column: $table.mediaId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get metaId => $composableBuilder(
+      column: $table.metaId, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get name => $composableBuilder(
       column: $table.name, builder: (column) => ColumnFilters(column));
@@ -4284,6 +4335,9 @@ class $$MediasTableOrderingComposer
   ColumnOrderings<int> get mediaId => $composableBuilder(
       column: $table.mediaId, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get metaId => $composableBuilder(
+      column: $table.metaId, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get name => $composableBuilder(
       column: $table.name, builder: (column) => ColumnOrderings(column));
 
@@ -4320,6 +4374,9 @@ class $$MediasTableAnnotationComposer
 
   GeneratedColumn<int> get mediaId =>
       $composableBuilder(column: $table.mediaId, builder: (column) => column);
+
+  GeneratedColumn<String> get metaId =>
+      $composableBuilder(column: $table.metaId, builder: (column) => column);
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
@@ -4368,6 +4425,7 @@ class $$MediasTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<int?> mediaId = const Value.absent(),
+            Value<String?> metaId = const Value.absent(),
             Value<String?> name = const Value.absent(),
             Value<String?> path = const Value.absent(),
             Value<String?> metaUrl = const Value.absent(),
@@ -4379,6 +4437,7 @@ class $$MediasTableTableManager extends RootTableManager<
               MediasCompanion(
             id: id,
             mediaId: mediaId,
+            metaId: metaId,
             name: name,
             path: path,
             metaUrl: metaUrl,
@@ -4390,6 +4449,7 @@ class $$MediasTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<int?> mediaId = const Value.absent(),
+            Value<String?> metaId = const Value.absent(),
             Value<String?> name = const Value.absent(),
             Value<String?> path = const Value.absent(),
             Value<String?> metaUrl = const Value.absent(),
@@ -4401,6 +4461,7 @@ class $$MediasTableTableManager extends RootTableManager<
               MediasCompanion.insert(
             id: id,
             mediaId: mediaId,
+            metaId: metaId,
             name: name,
             path: path,
             metaUrl: metaUrl,

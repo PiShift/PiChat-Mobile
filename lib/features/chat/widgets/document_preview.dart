@@ -10,12 +10,14 @@ import 'dart:io';
     final String mediaId;
     final String mediaType;
     final String contactId;
+    final String? metaId;
 
     const DocumentPreview({
       required this.media,
       required this.mediaId,
       required this.mediaType,
       required this.contactId,
+      this.metaId,
       Key? key,
     }) : super(key: key);
 
@@ -45,6 +47,10 @@ import 'dart:io';
     @override
     Widget build(BuildContext context, WidgetRef ref) {
       final mediaState = ref.watch(mediaPlaybackProvider(mediaId));
+
+    // Derive effective downloaded state from DB model (survives app restarts).
+    final isAlreadyDownloaded = mediaState.isDownloaded || media.location == 'local';
+    final effectiveLocalPath = mediaState.localPath ?? (media.location == 'local' ? media.path : null);
 
       return Container(
         padding: const EdgeInsets.all(12),
@@ -95,14 +101,14 @@ import 'dart:io';
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                if (!mediaState.isDownloaded && !mediaState.isDownloading)
+                if (!isAlreadyDownloaded && !mediaState.isDownloading)
                   ElevatedButton.icon(
                     icon: const Icon(Icons.download, size: 18),
                     label: const Text('Download'),
                     onPressed: () {
                       ref
                           .read(mediaPlaybackProvider(mediaId).notifier)
-                          .downloadMedia(contactId, mediaType);
+                          .downloadMedia(contactId, mediaType, metaUrl: media.metaUrl, metaId: metaId);
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
@@ -111,13 +117,13 @@ import 'dart:io';
                       textStyle: const TextStyle(fontSize: 14),
                     ),
                   )
-                else if (mediaState.isDownloaded)
+                else if (isAlreadyDownloaded)
                   ElevatedButton.icon(
                     icon: const Icon(Icons.open_in_new, size: 18),
                     label: const Text('Open'),
                     onPressed: () {
-                      if (mediaState.localPath != null) {
-                        OpenFile.open(mediaState.localPath);
+                      if (effectiveLocalPath != null) {
+                        OpenFile.open(effectiveLocalPath);
                       }
                     },
                     style: ElevatedButton.styleFrom(

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/models/chat_model.dart';
@@ -32,32 +33,21 @@ class MainDataController extends StateNotifier<List<Contact>> {
     refreshContacts();
   }
 
+  /// Refresh contacts from API
+  /// The API now returns contacts with last_message embedded, so NO need to loop!
   Future<void> refreshContacts() async {
     try {
       final apiContacts = await _contactRepo.getContacts(forceRefresh: true);
+      
+      // Sort by latest message descending so newest conversations appear first
+      final sorted = List<Contact>.from(apiContacts)
+        ..sort((a, b) {
+          final aTime = a.latestChatCreatedAt ?? a.createdAt;
+          final bTime = b.latestChatCreatedAt ?? b.createdAt;
+          return bTime.compareTo(aTime);
+        });
 
-      // Update state immediately after API data
-      state = apiContacts;
-
-      // For each contact, load messages **from DB first** (instant)
-      for (var contact in apiContacts) {
-        final lastId = contact.lastChat!.id;
-        final newMessages = await _chatRepo.getMessages(contact.id, afterId: lastId, forceRefresh: true);
-
-        if (newMessages.isNotEmpty) {
-          contact.lastChatId = newMessages.last.id;
-          contact.latestChatCreatedAt = newMessages.last.createdAt;
-          await _db.into(_db.contacts).insertOnConflictUpdate(contact.toCompanion());
-        }
-      }
-
-      // Then fetch **fresh messages** from API in background
-      for (var contact in apiContacts) {
-        final freshMessages = await _chatRepo.getMessages(contact.id, forceRefresh: true);
-
-        // freshMessages are saved to DB by repository
-        // UI can re-read from DB or listen to state changes
-      }
+      state = sorted;
     } catch (e) {
       print('Error refreshing contacts: $e');
     }
@@ -93,5 +83,46 @@ class MainDataController extends StateNotifier<List<Contact>> {
     }
   }
 
+  /// Update a contact's unread count (called when messages are marked as read)
+  void updateContactUnreadCount(int contactId, int newUnreadCount) {
+    final List<Contact> updated = List.from(state);
+    final index = updated.indexWhere((c) => c.id == contactId);
+    
+    if (index != -1) {
+      final contact = updated[index];
+      updated[index] = contact.copyWith(unreadCount: newUnreadCount);
+      state = updated;
+    }
+  }
+
+  /// Decrease unread count by the number of messages marked as read
+  void decreaseUnreadCount(int contactId, int count) {
+    final List<Contact> updated = List.from(state);
+    final index = updated.indexWhere((c) => c.id == contactId);
+    
+    if (index != -1) {
+      final contact = updated[index];
+      final newCount = ((contact.unreadCount ?? 0) - count).clamp(0, 999999);
+      updated[index] = contact.copyWith(unreadCount: newCount);
+      state = updated;
+    }
+  }
+
+  /// Add a new contact or update an existing one in the list
+  void addOrUpdateContact(Contact contact) {
+    final List<Contact> updated = List.from(state);
+    final index = updated.indexWhere((c) => c.id == contact.id);
+    if (index != -1) {
+      updated[index] = contact;
+    } else {
+      updated.insert(0, contact);
+    }
+    state = updated;
+  }
+
+  /// Mark all contacts' unread counts as 0 in the local state
+  Future<void> markAllAsRead() async {
+    state = state.map((c) => c.copyWith(unreadCount: 0)).toList();
+  }
 
 }

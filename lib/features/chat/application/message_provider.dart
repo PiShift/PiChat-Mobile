@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/models/chat_model.dart';
+import 'package:pichat/data/repositories/chat_repository.dart';
 
+/// Provider for messages of a specific contact (on-demand loading)
 final messagesProvider =
 StreamProvider.family<List<Chat>, int>((ref, int contactId) {
   final db = ref.watch(appDatabaseProvider);
@@ -22,5 +24,22 @@ StreamProvider.family<List<Chat>, int>((ref, int contactId) {
   });
 });
 
+/// Provider for total unread count (for app badge)
+final totalUnreadProvider = FutureProvider<int>((ref) async {
+  final chatRepo = ref.watch(chatRepositoryProvider);
+  try {
+    final summary = await chatRepo.getUnreadSummary();
+    return summary.totalUnread;
+  } catch (e) {
+    // Fall back to counting from local DB
+    final db = ref.watch(appDatabaseProvider);
+    final count = await (db.selectOnly(db.chats)
+      ..addColumns([db.chats.id.count()])
+      ..where(db.chats.type.equals('inbound') & db.chats.isRead.equals(false)))
+        .map((row) => row.read(db.chats.id.count()))
+        .getSingleOrNull();
+    return count ?? 0;
+  }
+});
 
 

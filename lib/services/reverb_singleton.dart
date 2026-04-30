@@ -1,17 +1,20 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/constants/app_constants.dart';
+import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/data/db/database_provider.dart';
 
 import 'reverb_service.dart';
 
 final reverbServiceProvider = Provider<ReverbService>((ref) {
   final db = ref.watch(appDatabaseProvider);
-  final orgId = "1"; // or fetch from auth/session provider
+  final org = ref.watch(organizationProvider);
+  final orgId = org?.id.toString();
 
   return ReverbService(
     host: AppConstants.wssUrl,
-    appKey: 'pi_9a885dd7c4f547c01',
+    appKey: 'kmdqYl4DVjIv6kBPtlJ9',
     useSecure: true,
+    origin: AppConstants.wssOrigin,
     organizationId: orgId,
     db: db,
     ref: ref,

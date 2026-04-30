@@ -26,6 +26,7 @@ class Chats extends Table {
 class Medias extends Table {
   IntColumn get id => integer().unique()();
   IntColumn get mediaId => integer().nullable()();
+  TextColumn get metaId => text().nullable()(); // WhatsApp media ID (meta_id)
   TextColumn get name => text().nullable()();
   TextColumn get path => text().nullable()();
   TextColumn get metaUrl => text().nullable()();
