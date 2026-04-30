@@ -1,4 +1,4 @@
-package com.example.pichat
+package com.pishift.pichat
 
 import io.flutter.embedding.android.FlutterActivity
 
