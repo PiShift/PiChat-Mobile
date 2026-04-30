@@ -125,11 +125,13 @@ class ContactRepository {
   /// the number isn't in the org's address book yet (HTTP 404). Other
   /// errors propagate.
   Future<Contact?> findContactByPhone(String phone) async {
-    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    // Send the number as-is — the backend uses PhoneService::getE164Format
+    // to normalize, so stripping the '+' here would break matching of
+    // contacts that were saved as '+22236973666'.
     try {
       final response = await _dio.get(
         '/contacts/find',
-        queryParameters: {'phone': digits},
+        queryParameters: {'phone': phone.trim()},
       );
       final json = response.data['contact'] as Map<String, dynamic>?;
       if (json == null) return null;
@@ -151,22 +153,28 @@ class ContactRepository {
     String? firstName,
     String? lastName,
   }) async {
-    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final trimmed = phone.trim();
+    // Local cache lookup is digit-tolerant: contacts may be stored either
+    // as '+22236973666' or '22236973666' depending on origin, so we
+    // compare on the digits-only form.
+    final digits = trimmed.replaceAll(RegExp(r'[^0-9]'), '');
 
     // 1. Local cache first — by far the most common case.
-    final localRow = await (_db.select(_db.contacts)
-          ..where((c) => c.phone.equals(digits)))
-        .getSingleOrNull();
-    if (localRow != null) return Contact.fromDb(localRow);
+    final localRows = await _db.select(_db.contacts).get();
+    for (final row in localRows) {
+      final rowDigits = row.phone.replaceAll(RegExp(r'[^0-9]'), '');
+      if (rowDigits == digits) return Contact.fromDb(row);
+    }
 
     // 2. Ask the server (handles the case where another agent created the
     //    contact and we just haven't synced yet).
-    final remote = await findContactByPhone(digits);
+    final remote = await findContactByPhone(trimmed);
     if (remote != null) return remote;
 
-    // 3. Genuinely new — create it.
+    // 3. Genuinely new — create it. Send the original (with '+' if any)
+    //    so the backend can E.164-normalize it.
     return createContact(
-      phone: digits,
+      phone: trimmed,
       firstName: firstName,
       lastName: lastName,
     );
