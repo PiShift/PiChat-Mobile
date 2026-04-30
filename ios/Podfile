@@ -37,6 +37,42 @@ target 'Runner' do
 end
 
 post_install do |installer|
+  # WebRTC.xcframework ships as a precompiled binary without dSYMs which
+  # makes App Store Connect log "Upload Symbols Failed" after each
+  # TestFlight submission. Generate empty dSYM bundles for every slice
+  # so that uploads succeed cleanly. See:
+  # https://github.com/flutter-webrtc/flutter-webrtc/issues/1212
+  webrtc_xcframework = File.expand_path('Pods/WebRTC-SDK/WebRTC.xcframework', __dir__)
+  if Dir.exist?(webrtc_xcframework)
+    Dir.glob(File.join(webrtc_xcframework, '*', 'WebRTC.framework')).each do |framework|
+      slice_dir = File.dirname(framework)
+      dsym_path = File.join(slice_dir, 'WebRTC.framework.dSYM')
+      next if Dir.exist?(dsym_path)
+
+      binary = File.join(framework, 'WebRTC')
+      next unless File.exist?(binary)
+
+      dwarf_dir = File.join(dsym_path, 'Contents', 'Resources', 'DWARF')
+      FileUtils.mkdir_p(dwarf_dir)
+      File.write(File.join(dsym_path, 'Contents', 'Info.plist'), <<~PLIST)
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+          <key>CFBundleDevelopmentRegion</key><string>English</string>
+          <key>CFBundleIdentifier</key><string>com.apple.xcode.dsym.WebRTC</string>
+          <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+          <key>CFBundlePackageType</key><string>dSYM</string>
+          <key>CFBundleSignature</key><string>????</string>
+          <key>CFBundleShortVersionString</key><string>1.0</string>
+          <key>CFBundleVersion</key><string>1</string>
+        </dict>
+        </plist>
+      PLIST
+      FileUtils.cp(binary, File.join(dwarf_dir, 'WebRTC'))
+    end
+  end
+
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
 
