@@ -1,9 +1,9 @@
-import 'dart:io';
   import 'package:flutter/material.dart';
   import 'package:flutter_riverpod/flutter_riverpod.dart';
   import 'package:pichat/data/models/chat_media_model.dart';
   import 'package:pichat/features/chat/application/media_providers.dart';
   import 'package:open_file/open_file.dart';
+  import 'package:url_launcher/url_launcher.dart';
 
   class DocumentPreview extends ConsumerWidget {
     final ChatMedia media;
@@ -78,7 +78,7 @@ import 'dart:io';
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _formatFileSize(int.parse(media.size!)),
+                        _formatFileSize(int.tryParse(media.size ?? '') ?? 0),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade700,
@@ -121,9 +121,25 @@ import 'dart:io';
                   ElevatedButton.icon(
                     icon: const Icon(Icons.open_in_new, size: 18),
                     label: const Text('Open'),
-                    onPressed: () {
+                    onPressed: () async {
                       if (effectiveLocalPath != null) {
-                        OpenFile.open(effectiveLocalPath);
+                        final result = await OpenFile.open(effectiveLocalPath);
+                        // If the system couldn't open the file (e.g. no handler
+                        // on iOS), fall back to the remote URL in the browser.
+                        if (result.type != ResultType.done &&
+                            media.metaUrl != null) {
+                          final uri = Uri.tryParse(media.metaUrl!);
+                          if (uri != null) {
+                            await launchUrl(uri,
+                                mode: LaunchMode.externalApplication);
+                          }
+                        }
+                      } else if (media.metaUrl != null) {
+                        final uri = Uri.tryParse(media.metaUrl!);
+                        if (uri != null) {
+                          await launchUrl(uri,
+                              mode: LaunchMode.externalApplication);
+                        }
                       }
                     },
                     style: ElevatedButton.styleFrom(

@@ -28,14 +28,20 @@
 	<true/>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Access to media library is required to play audio files</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Camera access is required to take photos and videos to share in chats and during video calls.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Used to pick a contact card to share in chats.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Your location is shared only when you tap "Send your current location".</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Your location is shared only when you tap "Send your current location".</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Microphone access is required for WhatsApp voice calls</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Access to photo library is required to save media files</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Allows saving photos and videos received in chats to your library.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

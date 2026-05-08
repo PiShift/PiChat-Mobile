@@ -32,6 +32,11 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> with Si
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    // Always fetch fresh media when opening this screen so the gallery
+    // reflects recently received files (provider result is cached otherwise).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(contactMediaProvider(widget.contactUuid));
+    });
   }
 
   @override

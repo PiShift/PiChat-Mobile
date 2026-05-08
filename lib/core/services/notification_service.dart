@@ -61,9 +61,14 @@ class NotificationService {
     // Initialize local notifications
     await _initializeLocalNotifications();
 
-    // Get FCM token
-    _fcmToken = await _messaging.getToken();
-    print('NotificationService: FCM Token = ${_fcmToken?.substring(0, 20)}...');
+    // Get FCM token — on iOS the APNS token may not be ready immediately,
+    // so retry a few times with a short delay before giving up.
+    _fcmToken = await _getTokenWithRetry();
+    if (_fcmToken != null) {
+      print('NotificationService: FCM Token = ${_fcmToken?.substring(0, 20)}...');
+    } else {
+      print('NotificationService: Could not obtain FCM token (APNS token unavailable)');
+    }
 
     // Listen for token refresh
     _messaging.onTokenRefresh.listen((newToken) {
@@ -85,6 +90,36 @@ class NotificationService {
 
     _isInitialized = true;
     print('NotificationService: Initialized successfully');
+  }
+
+  /// On iOS the APNS token registration is asynchronous and may not be ready
+  /// by the time `getToken()` is first called. Retry up to [maxAttempts] times
+  /// with a short back-off to avoid the `apns-token-not-set` crash.
+  Future<String?> _getTokenWithRetry({int maxAttempts = 5}) async {
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        // On iOS, check for the APNS token first before requesting FCM token.
+        if (Platform.isIOS) {
+          final apnsToken = await _messaging.getAPNSToken();
+          if (apnsToken == null) {
+            if (attempt < maxAttempts) {
+              await Future.delayed(Duration(seconds: attempt));
+              continue;
+            }
+            return null;
+          }
+        }
+        return await _messaging.getToken();
+      } catch (e) {
+        if (attempt < maxAttempts) {
+          await Future.delayed(Duration(seconds: attempt));
+        } else {
+          print('NotificationService: Failed to get FCM token after $maxAttempts attempts: $e');
+          return null;
+        }
+      }
+    }
+    return null;
   }
 
   Future<void> _initializeLocalNotifications() async {

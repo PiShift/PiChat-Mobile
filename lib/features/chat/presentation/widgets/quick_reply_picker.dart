@@ -28,6 +28,11 @@ class _QuickReplyPickerState extends ConsumerState<QuickReplyPicker> {
     super.initState();
     _searchController = TextEditingController(text: widget.initialSearch ?? '');
     _searchQuery = widget.initialSearch ?? '';
+    // Always load fresh replies when the picker opens so newly created
+    // replies (added via the Templates management screen) are visible.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(cannedRepliesProvider);
+    });
   }
 
   @override

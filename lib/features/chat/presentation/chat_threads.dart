@@ -38,7 +38,8 @@ class ChatThread extends ConsumerStatefulWidget {
   @override
   ConsumerState<ChatThread> createState() => _ChatThreadState();
 }
-class _ChatThreadState extends ConsumerState<ChatThread> {
+class _ChatThreadState extends ConsumerState<ChatThread>
+    with WidgetsBindingObserver {
   final ItemScrollController _itemScrollController = ItemScrollController();
   final ItemPositionsListener _itemPositionsListener = ItemPositionsListener.create();
   final TextEditingController _messageController = TextEditingController();
@@ -73,6 +74,7 @@ class _ChatThreadState extends ConsumerState<ChatThread> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchNewMessages();
@@ -105,6 +107,7 @@ class _ChatThreadState extends ConsumerState<ChatThread> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _messageFocusNode.dispose();
@@ -121,6 +124,14 @@ class _ChatThreadState extends ConsumerState<ChatThread> {
       }
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Re-fetch messages missed while the app was in the background
+      _fetchNewMessages();
+    }
   }
 
   void _onTextChanged() {

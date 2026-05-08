@@ -315,14 +315,17 @@ class ReverbService {
     final controller = _ref.read(mainDataProvider.notifier);
     controller.updateContactWithNewMessage(chat);
 
-    // Defensive: explicitly invalidate the messages stream for this contact so
-    // an open chat thread refreshes even if Drift's watch() somehow misses
-    // the table change (e.g. transactional timing or detached isolate).
-    try {
-      _ref.invalidate(messagesProvider(chat.contactId));
-    } catch (e) {
-      print('⚠️ failed to invalidate messagesProvider: $e');
-    }
+    // Defensive: invalidate the messages stream AFTER a short delay so Drift's
+    // own watch() notification has time to fire first (avoids a race where
+    // invalidate cancels the old stream before Drift delivers the change,
+    // causing the new stream to miss the update on iOS).
+    Future.delayed(const Duration(milliseconds: 200), () {
+      try {
+        _ref.invalidate(messagesProvider(chat.contactId));
+      } catch (e) {
+        print('⚠️ failed to invalidate messagesProvider: $e');
+      }
+    });
   }
 
   /// Show a local notification for incoming messages
