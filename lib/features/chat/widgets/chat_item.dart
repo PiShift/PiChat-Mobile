@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pichat/core/state/auth_state.dart';
@@ -17,6 +18,9 @@ import 'package:pichat/features/chat/widgets/image_preview.dart';
 
 import 'audio_preview.dart';
 import 'document_preview.dart';
+import 'package:pichat/core/theme/app_colors.dart';
+import 'package:pichat/core/theme/app_radius.dart';
+import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ChatMessageItem extends ConsumerWidget {
@@ -57,15 +61,12 @@ class ChatMessageItem extends ConsumerWidget {
         if (localPath != null) {
           return GestureDetector(
             onTap: () => _showLocalFullScreen(context, localPath),
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-              child: Image.file(
-                File(localPath),
-                width: mediaMaxWidth,
-                height: mediaMaxHeight,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _buildMediaErrorBox(),
-              ),
+            child: Image.file(
+              File(localPath),
+              width: double.infinity,
+              height: mediaMaxHeight,
+              fit: BoxFit.cover,
+              errorBuilder: (ctx, __, ___) => _buildMediaErrorBox(ctx),
             ),
           );
         }
@@ -120,14 +121,17 @@ class ChatMessageItem extends ConsumerWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.insert_drive_file, size: 32, color: Colors.blueGrey),
+                Icon(LucideIcons.fileText, size: 32, color: PiColors.of(context).textSecondary),
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text(
                     localPath.split('/').last,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13),
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: Sz.sp(context, 13),
+                      color: PiColors.of(context).textPrimary,
+                    ),
                   ),
                 ),
               ],
@@ -145,12 +149,12 @@ class ChatMessageItem extends ConsumerWidget {
     }
   }
 
-  Widget _buildMediaErrorBox() {
+  Widget _buildMediaErrorBox(BuildContext context) {
     return Container(
-      width: mediaMaxWidth,
+      width: double.infinity,
       height: mediaMaxHeight,
-      color: Colors.grey[200],
-      child: const Center(child: Icon(Icons.broken_image, size: 48, color: Colors.grey)),
+      color: PiColors.of(context).surface,
+      child: Center(child: Icon(Icons.broken_image, size: 48, color: PiColors.of(context).ink400)),
     );
   }
 
@@ -233,7 +237,7 @@ class ChatMessageItem extends ConsumerWidget {
                   if (address != null)
                     Text(
                       address,
-                      style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                      style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 12),
                     ),
                 ],
               ),
@@ -281,13 +285,13 @@ class ChatMessageItem extends ConsumerWidget {
                 child: Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: const Color(0xFFE7F4EE),
+                      backgroundColor: PiColors.of(context).surface,
                       child: Text(
                         formatted.isNotEmpty
                             ? formatted[0].toUpperCase()
                             : '?',
-                        style: const TextStyle(
-                            color: Color(0xFF34A853),
+                        style: GoogleFonts.plusJakartaSans(
+                            color: PiColors.of(context).textSecondary,
                             fontWeight: FontWeight.w600),
                       ),
                     ),
@@ -309,7 +313,7 @@ class ChatMessageItem extends ConsumerWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                  color: Colors.grey[700], fontSize: 12),
+                                  color: PiColors.of(context).textSecondary, fontSize: 12),
                             ),
                         ],
                       ),
@@ -324,9 +328,9 @@ class ChatMessageItem extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: _ContactActionButton(
-                        icon: Icons.chat_bubble_outline,
+                        icon: LucideIcons.messageCircle,
                         label: 'Message',
-                        color: const Color(0xFF25D366),
+                        color: PiPalette.success500,
                         onTap: () => _openChatWithContact(
                           context,
                           ref,
@@ -338,12 +342,12 @@ class ChatMessageItem extends ConsumerWidget {
                       ),
                     ),
                     Container(
-                        width: 1, height: 28, color: Colors.grey[300]),
+                        width: 1, height: 28, color: PiColors.of(context).divider),
                     Expanded(
                       child: _ContactActionButton(
-                        icon: Icons.phone_outlined,
+                        icon: LucideIcons.phone,
                         label: 'Call',
-                        color: const Color(0xFF34A853),
+                        color: PiPalette.success500,
                         onTap: () async {
                           final uri = Uri.parse('tel:$firstPhone');
                           try {
@@ -353,12 +357,12 @@ class ChatMessageItem extends ConsumerWidget {
                       ),
                     ),
                     Container(
-                        width: 1, height: 28, color: Colors.grey[300]),
+                        width: 1, height: 28, color: PiColors.of(context).divider),
                     Expanded(
                       child: _ContactActionButton(
-                        icon: Icons.copy_outlined,
+                        icon: LucideIcons.copy,
                         label: 'Copy',
-                        color: Colors.blueGrey,
+                        color: PiPalette.ink500,
                         onTap: () async {
                           await Clipboard.setData(
                               ClipboardData(text: firstPhone!));
@@ -528,12 +532,11 @@ class ChatMessageItem extends ConsumerWidget {
   }
 
   /// Status tick row shown below outbound messages that have been delivered.
-  Widget _buildStatusTick() {
+  Widget _buildStatusTick(BuildContext context) {
     if (message.type != 'outbound') return const SizedBox.shrink();
-    if (isFailed) return const SizedBox.shrink(); // handled by overlay
+    if (isFailed) return const SizedBox.shrink();
     if (isPending) {
-      // Clock icon — "sending…" without obscuring the bubble content.
-      return const Icon(Icons.access_time, size: 12, color: Colors.black54);
+      return Icon(LucideIcons.clock, size: 11, color: PiColors.of(context).textSecondary);
     }
 
     IconData icon;
@@ -541,19 +544,19 @@ class ChatMessageItem extends ConsumerWidget {
 
     switch (message.status) {
       case 'read':
-        icon = Icons.done_all;
-        color = Colors.blue;
+        icon = LucideIcons.checkCheck;
+        color = PiColors.of(context).info500;
         break;
       case 'delivered':
-        icon = Icons.done_all;
-        color = Colors.grey;
+        icon = LucideIcons.checkCheck;
+        color = PiColors.of(context).ink400;
         break;
-      default: // 'sent'
-        icon = Icons.done;
-        color = Colors.grey;
+      default:
+        icon = LucideIcons.check;
+        color = PiColors.of(context).ink400;
     }
 
-    return Icon(icon, size: 14, color: color);
+    return Icon(icon, size: 13, color: color);
   }
 
   /// Local-time HH:MM (24h) for the message bubble.
@@ -643,7 +646,7 @@ class ChatMessageItem extends ConsumerWidget {
     final standaloneBody = (!hasMedia && body != null && displayText == null) ? body : null;
     final mainText = displayText?.isNotEmpty == true ? displayText : standaloneBody;
 
-    final footer = _buildFooter();
+    final footer = _buildFooter(context);
 
     // Anchor key for the floating reaction picker so it can be positioned
     // directly above the long-pressed bubble (WhatsApp-style).
@@ -670,16 +673,32 @@ class ChatMessageItem extends ConsumerWidget {
                     : null,
                 child: ConstrainedBox(
                   key: bubbleKey,
-                constraints: BoxConstraints(maxWidth: mediaMaxWidth),
+                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
                 child: Container(
+                  clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
-                    color: isInbound ? Colors.white : Colors.lightBlue[100],
-                    borderRadius: BorderRadius.circular(12),
+                    color: isInbound
+                        ? PiColors.of(context).bubbleReceived
+                        : PiColors.of(context).bubbleSent,
+                    border: Border.all(
+                      color: isInbound
+                          ? PiColors.of(context).bubbleReceivedBorder
+                          : PiColors.of(context).bubbleSentBorder,
+                      width: 1,
+                    ),
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(PiRadius.xl),
+                      topRight: const Radius.circular(PiRadius.xl),
+                      bottomLeft: Radius.circular(
+                          isInbound ? PiRadius.xs : PiRadius.xl),
+                      bottomRight: Radius.circular(
+                          isInbound ? PiRadius.xl : PiRadius.xs),
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: PiPalette.ink900.withOpacity(0.06),
                         blurRadius: 4,
-                        offset: const Offset(0, 2),
+                        offset: const Offset(0, 1),
                       ),
                     ],
                   ),
@@ -688,9 +707,24 @@ class ChatMessageItem extends ConsumerWidget {
                     // in RTL). The footer row pins itself to end below.
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (hasMedia) _buildMediaPreview(context, type),
-                      if (isLocation) _buildLocationPreview(context),
-                      if (isContacts) _buildContactsPreview(context, ref),
+                      if (type == 'unsupported')
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.block, size: 14, color: PiColors.of(context).textSecondary),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Message type not supported',
+                                style: TextStyle(fontSize: 13, color: PiColors.of(context).textSecondary, fontStyle: FontStyle.italic),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (type != 'unsupported' && hasMedia) _buildMediaPreview(context, type),
+                      if (type != 'unsupported' && isLocation) _buildLocationPreview(context),
+                      if (type != 'unsupported' && isContacts) _buildContactsPreview(context, ref),
                       if (header != null || mainText != null)
                         Padding(
                           padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
@@ -700,13 +734,21 @@ class ChatMessageItem extends ConsumerWidget {
                               if (header != null)
                                 Text(
                                   header,
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: Sz.sp(context, 14),
+                                    fontWeight: FontWeight.w700,
+                                    color: PiColors.of(context).textPrimary,
+                                  ),
                                   textAlign: TextAlign.start,
                                 ),
                               if (mainText != null)
                                 Text(
                                   mainText,
-                                  style: const TextStyle(fontSize: 14),
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: Sz.sp(context, 14),
+                                    color: PiColors.of(context).textPrimary,
+                                    height: 1.4,
+                                  ),
                                   textAlign: TextAlign.start,
                                 ),
                             ],
@@ -719,9 +761,23 @@ class ChatMessageItem extends ConsumerWidget {
                             spacing: 4,
                             children: List.generate(
                               buttons.length,
-                              (i) => ElevatedButton(
-                                onPressed: () => handleButton(context, buttons[i]),
-                                child: Text(buttons[i]['text'] ?? 'Button'),
+                              (i) => GestureDetector(
+                                onTap: () => handleButton(context, buttons[i]),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: PiColors.of(context).primary500,
+                                    borderRadius: BorderRadius.circular(PiRadius.full),
+                                  ),
+                                  child: Text(
+                                    buttons[i]['text'] ?? 'Button',
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: Sz.sp(context, 13),
+                                      fontWeight: FontWeight.w600,
+                                      color: PiPalette.white,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -754,11 +810,11 @@ class ChatMessageItem extends ConsumerWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: PiColors.of(context).surfaceRaised,
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.12),
+                          color: PiPalette.ink900.withOpacity(0.12),
                           blurRadius: 4,
                           offset: const Offset(0, 1),
                         ),
@@ -780,9 +836,9 @@ class ChatMessageItem extends ConsumerWidget {
                           const SizedBox(width: 2),
                           Text(
                             '${reactions.length}',
-                            style: const TextStyle(
+                            style: GoogleFonts.plusJakartaSans(
                               fontSize: 11,
-                              color: Colors.black54,
+                              color: PiColors.of(context).textSecondary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -801,9 +857,9 @@ class ChatMessageItem extends ConsumerWidget {
               padding: const EdgeInsets.only(top: 2, left: 8, right: 8),
               child: Text(
                 'New',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.red[700],
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: Sz.sp(context, 11),
+                  color: PiColors.of(context).error,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -815,7 +871,7 @@ class ChatMessageItem extends ConsumerWidget {
 
   /// Time + status tick. Sits inside the bubble, bottom-right, in normal
   /// (non-overlapping) flow — so it never covers text, captions, or media.
-  Widget _buildFooter() {
+  Widget _buildFooter(BuildContext context) {
     final isInbound = message.type == 'inbound';
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -823,12 +879,15 @@ class ChatMessageItem extends ConsumerWidget {
       children: [
         Text(
           _formatTime(message.createdAt),
-          style: const TextStyle(fontSize: 10, color: Colors.black54),
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: Sz.sp(context, 10),
+            color: PiColors.of(context).textSecondary,
+          ),
         ),
         if (!isInbound)
           Padding(
             padding: const EdgeInsets.only(left: 3),
-            child: _buildStatusTick(),
+            child: _buildStatusTick(context),
           ),
       ],
     );
@@ -954,9 +1013,9 @@ class ChatMessageItem extends ConsumerWidget {
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: PiColors.of(context).surfaceRaised,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(PiRadius.lg)),
       ),
       builder: (_) => SafeArea(
         child: SizedBox(
@@ -969,8 +1028,7 @@ class ChatMessageItem extends ConsumerWidget {
               crossAxisSpacing: 4,
             ),
             itemCount: allEmojis.length,
-            itemBuilder: (ctx, i) => InkWell(
-              borderRadius: BorderRadius.circular(8),
+            itemBuilder: (ctx, i) => GestureDetector(
               onTap: () => Navigator.of(ctx).pop(allEmojis[i]),
               child: Center(
                 child: Text(allEmojis[i], style: const TextStyle(fontSize: 26)),
@@ -1007,8 +1065,9 @@ class _ContactActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         child: Row(
@@ -1019,7 +1078,7 @@ class _ContactActionButton extends StatelessWidget {
             const SizedBox(width: 6),
             Text(
               label,
-              style: TextStyle(
+              style: GoogleFonts.plusJakartaSans(
                 fontSize: 12,
                 color: color,
                 fontWeight: FontWeight.w600,
@@ -1041,48 +1100,45 @@ class _ReactionPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const quick = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(28),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.18),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            for (final e in quick)
-              InkWell(
-                borderRadius: BorderRadius.circular(20),
-                onTap: () => onPick(e),
-                child: Padding(
-                  padding: const EdgeInsets.all(6),
-                  child: Text(e, style: const TextStyle(fontSize: 24)),
-                ),
-              ),
-            InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: onMore,
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 2),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: PiColors.of(context).surfaceRaised,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: PiPalette.ink900.withOpacity(0.18),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          for (final e in quick)
+            GestureDetector(
+              onTap: () => onPick(e),
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
                 padding: const EdgeInsets.all(6),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF1F1F1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.add, size: 22, color: Colors.black54),
+                child: Text(e, style: const TextStyle(fontSize: 24)),
               ),
             ),
-          ],
-        ),
+          GestureDetector(
+            onTap: onMore,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: PiColors.of(context).surface,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(LucideIcons.plus, size: 22, color: PiColors.of(context).textSecondary),
+            ),
+          ),
+        ],
       ),
     );
   }

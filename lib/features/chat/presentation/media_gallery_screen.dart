@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:pichat/core/constants/app_constants.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/repositories/chat_repository.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,6 +12,17 @@ final contactMediaProvider = FutureProvider.family<Map<String, dynamic>, String>
   final chatRepo = ref.watch(chatRepositoryProvider);
   return chatRepo.getContactMedia(contactUuid);
 });
+
+/// Ensure [url] is absolute. Relative paths like `/media/public/...` are
+/// prefixed with [AppConstants.baseUrl].
+String _resolveUrl(String url) {
+  if (url.isEmpty) return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  final base = AppConstants.baseUrl.endsWith('/')
+      ? AppConstants.baseUrl.substring(0, AppConstants.baseUrl.length - 1)
+      : AppConstants.baseUrl;
+  return '$base$url';
+}
 
 class MediaGalleryScreen extends ConsumerStatefulWidget {
   final String contactUuid;
@@ -51,7 +64,7 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> with Si
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: AppColors.primary,
+        backgroundColor: PiPalette.primary500,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
           onPressed: () => Navigator.pop(context),
@@ -79,7 +92,7 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> with Si
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+              const Icon(Icons.error_outline, size: 48, color: PiPalette.ink400),
               const SizedBox(height: 16),
               Text('Error loading media: $e'),
               const SizedBox(height: 16),
@@ -130,12 +143,12 @@ class _MediaGrid extends StatelessWidget {
             Icon(
               type == MediaType.image ? Icons.image_not_supported : Icons.videocam_off,
               size: 64,
-              color: Colors.grey[400],
+              color: PiColors.of(context).ink400,
             ),
             const SizedBox(height: 16),
             Text(
               'No ${type == MediaType.image ? 'photos' : 'videos'} yet',
-              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+              style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 16),
             ),
           ],
         ),
@@ -152,7 +165,7 @@ class _MediaGrid extends StatelessWidget {
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
-        final url = item['url'] as String? ?? '';
+        final url = _resolveUrl(item['url'] as String? ?? '');
         final isVideo = type == MediaType.video;
 
         return GestureDetector(
@@ -164,12 +177,12 @@ class _MediaGrid extends StatelessWidget {
                 imageUrl: url,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
-                  color: Colors.grey[200],
+                  color: PiColors.of(context).surface,
                   child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                 ),
                 errorWidget: (context, url, error) => Container(
-                  color: Colors.grey[200],
-                  child: const Icon(Icons.broken_image, color: Colors.grey),
+                  color: PiColors.of(context).surface,
+                  child: Icon(Icons.broken_image, color: PiColors.of(context).ink400),
                 ),
               ),
               if (isVideo)
@@ -206,7 +219,7 @@ class _MediaGrid extends StatelessWidget {
   }
 
   void _openMediaViewer(BuildContext context, Map<String, dynamic> item, MediaType type) {
-    final url = item['url'] as String? ?? '';
+    final url = _resolveUrl(item['url'] as String? ?? '');
     
     if (type == MediaType.image) {
       Navigator.push(
@@ -241,12 +254,12 @@ class _MediaList extends StatelessWidget {
             Icon(
               type == MediaType.document ? Icons.folder_open : Icons.music_off,
               size: 64,
-              color: Colors.grey[400],
+              color: PiColors.of(context).ink400,
             ),
             const SizedBox(height: 16),
             Text(
               'No ${type == MediaType.document ? 'documents' : 'audio files'} yet',
-              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+              style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 16),
             ),
           ],
         ),
@@ -262,7 +275,7 @@ class _MediaList extends StatelessWidget {
         final name = item['name'] as String? ?? 'Unknown';
         final size = item['size'] as String? ?? '';
         final sentAt = item['sent_at'] as String? ?? '';
-        final url = item['url'] as String? ?? '';
+        final url = _resolveUrl(item['url'] as String? ?? '');
         final isInbound = item['direction'] == 'inbound';
 
         return ListTile(
@@ -290,7 +303,7 @@ class _MediaList extends StatelessWidget {
               Icon(
                 isInbound ? Icons.arrow_downward : Icons.arrow_upward,
                 size: 12,
-                color: Colors.grey,
+                color: PiColors.of(context).ink400,
               ),
               const SizedBox(width: 4),
               Text(

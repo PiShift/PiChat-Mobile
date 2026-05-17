@@ -69,6 +69,9 @@ dependencies:
   audio_session: ^0.2.2
   wakelock_plus: ^1.2.10
 
+  # Design system icons
+  lucide_icons_flutter: ^1.0.0
+
 dependency_overrides:
   # record 5.2.1 transitively pulls in the very old record_linux 0.7.2,
   # which doesn't implement startStream / hasPermission(request:) added in

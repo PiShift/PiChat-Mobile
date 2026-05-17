@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/repositories/team_repository.dart';
 
@@ -35,7 +36,7 @@ class AgentPickerSheet extends ConsumerWidget {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey[300],
+              color: PiColors.of(context).divider,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -80,7 +81,7 @@ class AgentPickerSheet extends ConsumerWidget {
                   const SizedBox(height: 12),
                   Text(
                     'agent_picker.error.load_failed'.tr(),
-                    style: TextStyle(color: Colors.grey[600]),
+                    style: TextStyle(color: PiColors.of(context).textSecondary),
                   ),
                   const SizedBox(height: 12),
                   ElevatedButton(
@@ -96,11 +97,11 @@ class AgentPickerSheet extends ConsumerWidget {
                   padding: const EdgeInsets.all(32),
                   child: Column(
                     children: [
-                      Icon(Icons.people_outline, color: Colors.grey[400], size: 48),
+                      Icon(Icons.people_outline, color: PiColors.of(context).ink400, size: 48),
                       const SizedBox(height: 12),
                       Text(
                         'agent_picker.empty.no_agents'.tr(),
-                        style: TextStyle(color: Colors.grey[600]),
+                        style: TextStyle(color: PiColors.of(context).textSecondary),
                       ),
                     ],
                   ),
@@ -152,13 +153,13 @@ class _AgentTile extends StatelessWidget {
     return ListTile(
       onTap: onTap,
       leading: CircleAvatar(
-        backgroundColor: isSelected ? AppColors.primary : Colors.grey[200],
+        backgroundColor: isSelected ? PiPalette.primary500 : PiColors.of(context).surface,
         backgroundImage: agent.avatar != null ? NetworkImage(agent.avatar!) : null,
         child: agent.avatar == null
             ? Text(
                 _getInitials(agent.name),
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.grey[600],
+                  color: isSelected ? PiPalette.white : PiColors.of(context).textSecondary,
                   fontWeight: FontWeight.bold,
                 ),
               )
@@ -200,14 +201,14 @@ class _AgentTile extends StatelessWidget {
             'agent_picker.active_tickets'.tr(namedArgs: {'count': agent.activeTickets.toString()}),
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey[500],
+              color: PiColors.of(context).textSecondary,
             ),
           ),
         ],
       ),
       trailing: isSelected
           ? null
-          : const Icon(Icons.chevron_right, color: Colors.grey),
+          : Icon(Icons.chevron_right, color: PiColors.of(context).ink400),
     );
   }
 
@@ -229,7 +230,7 @@ class _AgentTile extends StatelessWidget {
       case 'agent':
         return Colors.green;
       default:
-        return Colors.grey;
+        return PiPalette.ink400;
     }
   }
 }
@@ -261,7 +262,7 @@ class TicketStatusSheet extends StatelessWidget {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey[300],
+              color: PiColors.of(context).divider,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -313,7 +314,7 @@ class TicketStatusSheet extends StatelessWidget {
             status: 'closed',
             label: 'ticket_status.closed'.tr(),
             icon: Icons.check_circle_outline,
-            color: Colors.grey,
+            color: PiPalette.ink400,
             isSelected: currentStatus == 'closed',
             onTap: () {
               onStatusSelected('closed');

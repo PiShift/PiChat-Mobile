@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -13,11 +15,16 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:pichat/core/state/auth_state.dart';
-import 'package:pichat/core/theme/app_theme.dart';
+import 'package:pichat/core/theme/app_colors.dart';
+import 'package:pichat/core/theme/app_radius.dart';
+import 'package:pichat/core/theme/app_sizing.dart';
+import 'package:pichat/core/theme/app_spacing.dart';
 import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/data/repositories/chat_repository.dart';
 import 'package:pichat/data/repositories/team_repository.dart';
+import 'package:pichat/data/db/database_provider.dart';
+import 'package:drift/drift.dart' show OrderingTerm, OrderingMode;
 import 'package:pichat/features/chat/application/main_controller.dart';
 import 'package:pichat/features/chat/application/message_provider.dart';
 import 'package:pichat/features/chat/presentation/media_gallery_screen.dart';
@@ -50,7 +57,12 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   bool _showAttachmentPanel = false;
   bool _showEmojiPanel = false;
   bool _isAtBottom = true;
+  bool _isInitialLoading = true;
   int _lastRenderedCount = 0;
+
+  // ── Older-message pagination state ───────────────────────────────────
+  bool _isLoadingOlder = false;
+  bool _hasMoreOlderMessages = true;
 
   // ── Voice recording state ────────────────────────────────────────────
   /// Whether the input field currently has any text. Drives the swap
@@ -76,7 +88,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    // Tell the rest of the app which contact is currently open so
+    // ReverbService can suppress in-app banners for this conversation.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(activeContactIdProvider.notifier).state = widget.contact.id;
       _fetchNewMessages();
     });
 
@@ -107,6 +122,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   @override
   void dispose() {
+    // Clear the active contact so banners resume for future incoming messages.
+    ref.read(activeContactIdProvider.notifier).state = null;
     WidgetsBinding.instance.removeObserver(this);
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
@@ -164,10 +181,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('chat.banner.24h_expired'.tr()),
-            backgroundColor: Colors.orange,
+            backgroundColor: PiPalette.warning500,
             action: SnackBarAction(
               label: 'chat.banner.send_template_button'.tr(),
-              textColor: Colors.white,
+              textColor: PiPalette.white,
               onPressed: _showTemplatePicker,
             ),
           ),
@@ -262,7 +279,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('chat.snackbar.assigned_to'.tr(namedArgs: {'name': agent.name})),
-                    backgroundColor: Colors.green,
+                    backgroundColor: PiPalette.success500,
                   ),
                 );
               }
@@ -271,7 +288,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('chat.snackbar.failed_to_assign'.tr(namedArgs: {'error': e.toString()})),
-                    backgroundColor: AppColors.error,
+                    backgroundColor: PiPalette.error500,
                   ),
                 );
               }
@@ -305,7 +322,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('chat.snackbar.status_changed'.tr(namedArgs: {'status': status})),
-                  backgroundColor: Colors.green,
+                  backgroundColor: PiPalette.success500,
                 ),
               );
             }
@@ -314,7 +331,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('chat.snackbar.failed_to_update_status'.tr(namedArgs: {'error': e.toString()})),
-                  backgroundColor: AppColors.error,
+                  backgroundColor: PiPalette.error500,
                 ),
               );
             }
@@ -334,7 +351,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('chat.snackbar.ticket_closed'.tr()),
-            backgroundColor: Colors.green,
+            backgroundColor: PiPalette.success500,
           ),
         );
       }
@@ -343,7 +360,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('chat.snackbar.failed_to_close_ticket'.tr(namedArgs: {'error': e.toString()})),
-            backgroundColor: AppColors.error,
+            backgroundColor: PiPalette.error500,
           ),
         );
       }
@@ -352,16 +369,74 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   Future<void> _fetchNewMessages() async {
     final chatRepo = ref.read(chatRepositoryProvider);
-    final lastId = widget.contact.lastChatId;
-    await chatRepo.getMessages(widget.contact.id, afterId: lastId, forceRefresh: true);
+    final db = ref.read(appDatabaseProvider);
+
+    // Use the last message ID that is actually in the LOCAL database rather
+    // than widget.contact.lastChatId. After refreshContacts() runs on resume,
+    // the contact object may already have a newer lastChatId from the server
+    // even though that message hasn't been written to the local DB yet. If we
+    // pass that id as afterId we'd ask "give me messages AFTER the latest one",
+    // which returns nothing and leaves the chat thread blank.
+    final lastLocalRow = await (db.select(db.chats)
+          ..where((t) => t.contactId.equals(widget.contact.id))
+          ..orderBy([(t) => OrderingTerm(expression: t.id, mode: OrderingMode.desc)])
+          ..limit(1))
+        .getSingleOrNull();
+
+    try {
+      await chatRepo.getMessages(
+        widget.contact.id,
+        afterId: lastLocalRow?.id,
+        forceRefresh: true,
+      );
+    } finally {
+      if (mounted && _isInitialLoading) {
+        setState(() => _isInitialLoading = false);
+      }
+    }
+  }
+
+  /// Load messages older than the oldest locally stored message (scroll-up pagination).
+  Future<void> _loadOlderMessages() async {
+    if (_isLoadingOlder || !_hasMoreOlderMessages) return;
+    setState(() => _isLoadingOlder = true);
+
+    final db = ref.read(appDatabaseProvider);
+    final chatRepo = ref.read(chatRepositoryProvider);
+
+    // Find the oldest message currently in the local DB for this contact.
+    final oldestLocalRow = await (db.select(db.chats)
+          ..where((t) => t.contactId.equals(widget.contact.id))
+          ..orderBy([(t) => OrderingTerm(expression: t.id, mode: OrderingMode.asc)])
+          ..limit(1))
+        .getSingleOrNull();
+
+    try {
+      final fetched = await chatRepo.getMessages(
+        widget.contact.id,
+        beforeId: oldestLocalRow?.id,
+        forceRefresh: true,
+      );
+      if (mounted) {
+        setState(() {
+          // If the server returned fewer than perPage items there are no more.
+          _hasMoreOlderMessages = fetched.length >= 20;
+          _isLoadingOlder = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingOlder = false);
+    }
   }
 
   void _visibleItemsListener() {
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty) return;
 
+    // Must apply the same _hasRenderableContent filter used by ScrollablePositionedList
+    // so that position indices (0..N-1 of filtered items) map to the correct messages.
     final messages = ref.read(messagesProvider(widget.contact.id)).maybeWhen(
-      data: (List<Chat> m) => m,
+      data: (List<Chat> m) => m.where(_hasRenderableContent).toList(),
       orElse: () => <Chat>[],
     );
     if (messages.isEmpty) return;
@@ -370,15 +445,20 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     final firstVisibleIndex = positions.map((p) => p.index).reduce((a, b) => a < b ? a : b);
     final lastVisibleIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
 
+    // Load older messages when the user scrolls to the top (index 0 = loader item, index 1 = oldest message).
+    if (firstVisibleIndex <= 1 && !_isInitialLoading) {
+      _loadOlderMessages();
+    }
+
     // Mark all visible *inbound* messages as read. Outbound messages live
     // with is_read=false until the recipient reads them; if we included them
     // here we'd both fire spurious read-receipt API calls and decrement the
     // contact's unread count for our own sent messages.
+    // Subtract 1 from indices to account for the top loader item at index 0.
+    final firstMsgIndex = (firstVisibleIndex - 1).clamp(0, messages.length);
+    final lastMsgIndex = lastVisibleIndex.clamp(0, messages.length);
     final visibleMessages = messages
-        .sublist(
-      firstVisibleIndex.clamp(0, messages.length),
-      (lastVisibleIndex + 1).clamp(0, messages.length),
-    )
+        .sublist(firstMsgIndex, lastMsgIndex)
         .where((m) => m.type == 'inbound' && !m.isRead)
         .toList();
 
@@ -387,8 +467,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     }
 
     // Show FAB only when the user has scrolled at least ~3 items away from the bottom.
-    // This prevents the button from popping up after just a tiny scroll.
-    final lastIndex = messages.length - 1;
+    // +1 because itemCount = messages.length + 1 (header loader at index 0).
+    final lastIndex = messages.length; // last real message is at index messages.length (0-based + header)
     final maxVisibleIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
     final isNearBottom = lastIndex - maxVisibleIndex < 3;
     _isAtBottom = isNearBottom;
@@ -422,10 +502,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       orElse: () => <Chat>[],
     );
     if (messages.isNotEmpty && _itemScrollController.isAttached) {
-      _itemScrollController.scrollTo(
-        index: messages.length - 1,
-        duration: const Duration(milliseconds: 300),
-      );
+      // Use jumpTo instead of scrollTo: animated scrollTo uses spring physics
+      // that can overshoot and visually bounce the list.
+      // +1 because index 0 is the top loader header item.
+      _itemScrollController.jumpTo(index: messages.length);
     }
   }
 
@@ -438,7 +518,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       orElse: () => <Chat>[],
     );
     if (messages.isNotEmpty && _itemScrollController.isAttached) {
-      _itemScrollController.jumpTo(index: messages.length - 1);
+      _itemScrollController.jumpTo(index: messages.length);
     }
   }
   void _scrollToFirstUnread(List<Chat> messages) {
@@ -460,6 +540,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     if ((meta['type'] as String?) == 'reaction') return false;
     if ((meta['_localFilePath'] as String?)?.isNotEmpty == true) return true;
     final type = meta['type'] as String? ?? 'text';
+    // Unsupported message types (WhatsApp error 131051, stickers, polls, etc.)
+    // should still render as a placeholder so the chat thread isn't blank.
+    if (type == 'unsupported') return true;
+    if (meta['errors'] is List && (meta['errors'] as List).isNotEmpty) return true;
     // Location/contacts payloads are always renderable.
     if (type == 'location' || type == 'contacts') return true;
     final textNode = meta['text'];
@@ -538,7 +622,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         final visible = all.where(_hasRenderableContent).length;
         if (visible > _lastRenderedCount && _isAtBottom) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _scrollToBottom();
+            // Re-check _isAtBottom — user may have scrolled up between scheduling
+            // and execution. Also skip if already showing the last item.
+            if (mounted && _isAtBottom) _scrollToBottom();
           });
         }
         _lastRenderedCount = visible;
@@ -546,154 +632,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     });
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.black12,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, size: 20, color: Colors.grey[800]),
-          onPressed: () => context.pop(),
-        ),
-        titleSpacing: 0,
-        title: GestureDetector(
-          onTap: _showContactDetails,
-          behavior: HitTestBehavior.opaque,
-          child: Row(
-            children: [
-              // Avatar
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                child: Text(
-                  (widget.contact.fullName ?? widget.contact.phone)
-                      .substring(0, 1)
-                      .toUpperCase(),
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              // Name + phone
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      widget.contact.fullName ?? widget.contact.phone,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[900],
-                        height: 1.2,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (widget.contact.fullName != null)
-                      Text(
-                        widget.contact.phone,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[500],
-                          height: 1.2,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Call',
-            icon: Icon(Icons.call, color: Colors.grey[800]),
-            onPressed: () {
-              context.push('/call/outbound', extra: {
-                'uuid': widget.contact.uuid,
-                'name': widget.contact.fullName ?? widget.contact.phone,
-                'phone': widget.contact.phone,
-              });
-            },
-          ),
-          // Actions menu — media gallery moved inside
-          PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert, color: Colors.grey[800]),
-            onSelected: (value) {
-              if (value == 'media') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => MediaGalleryScreen(
-                      contactUuid: widget.contact.uuid,
-                      contactName: widget.contact.fullName ?? widget.contact.phone,
-                    ),
-                  ),
-                );
-              } else {
-                _handleMenuAction(value);
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'contact',
-                child: Row(children: [
-                  const Icon(Icons.person_outline, size: 20),
-                  const SizedBox(width: 12),
-                  Text('chat.menu.contact_details'.tr()),
-                ]),
-              ),
-              PopupMenuItem(
-                value: 'media',
-                child: Row(children: [
-                  const Icon(Icons.photo_library_outlined, size: 20),
-                  const SizedBox(width: 12),
-                  Text('chat.tooltip.media_gallery'.tr()),
-                ]),
-              ),
-              PopupMenuItem(
-                value: 'template',
-                child: Row(children: [
-                  const Icon(Icons.description_outlined, size: 20),
-                  const SizedBox(width: 12),
-                  Text('chat.menu.send_template'.tr()),
-                ]),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'assign',
-                child: Row(children: [
-                  const Icon(Icons.person_add_outlined, size: 20),
-                  const SizedBox(width: 12),
-                  Text('chat.menu.assign_to_agent'.tr()),
-                ]),
-              ),
-              PopupMenuItem(
-                value: 'status',
-                child: Row(children: [
-                  const Icon(Icons.flag_outlined, size: 20),
-                  const SizedBox(width: 12),
-                  Text('chat.menu.change_status'.tr()),
-                ]),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'close',
-                child: Row(children: [
-                  const Icon(Icons.check_circle_outline, size: 20, color: Colors.green),
-                  const SizedBox(width: 12),
-                  Text('chat.menu.close_ticket'.tr(), style: const TextStyle(color: Colors.green)),
-                ]),
-              ),
-            ],
-          ),
-        ],
-      ),
+      backgroundColor: PiColors.of(context).background,
       body: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: () {
@@ -705,6 +644,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         },
         child: Column(
         children: [
+          _buildChatAppBar(context),
+          Divider(height: 1, thickness: 1, color: PiColors.of(context).divider),
           // Messages list (expanded to fill available space)
           Expanded(
             child: messagesAsync.when(
@@ -713,6 +654,42 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                 // no buttons. These can come from system events or partial
                 // template payloads and just render as a blank box.
                 final messages = allMessages.where(_hasRenderableContent).toList();
+
+                // Show a spinner while the first API fetch is in flight.
+                // Drift immediately emits [] from an empty table, so the
+                // provider reaches data([]) before any messages are loaded —
+                // without this guard the user sees a white screen instead of
+                // a loading indicator.
+                if (_isInitialLoading && messages.isEmpty) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                // Drift already has messages — initial load is done.
+                // Use a postFrameCallback to avoid calling setState during build.
+                if (_isInitialLoading && messages.isNotEmpty) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() => _isInitialLoading = false);
+                  });
+                }
+
+                // All messages were filtered out (e.g. unsupported type, system
+                // events). Show a placeholder rather than a blank white screen.
+                if (messages.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(LucideIcons.messageCircle, size: 48, color: PiColors.of(context).ink400),
+                        const SizedBox(height: 12),
+                        Text(
+                          'No messages yet',
+                          style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 15),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
                 final reactionsByWamId = _collectReactions(allMessages);
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _scrollToFirstUnread(messages);
@@ -733,11 +710,22 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                       child: RefreshIndicator(
                         onRefresh: _fetchNewMessages,
                         child: ScrollablePositionedList.builder(
-                          itemCount: messages.length,
-                          initialScrollIndex: startIndex ?? (messages.isEmpty ? 0 : messages.length - 1),
+                          // +1 for the top loader/sentinel item at index 0.
+                          itemCount: messages.length + 1,
+                          initialScrollIndex: startIndex != null ? startIndex + 1 : messages.length,
                           initialAlignment: isAtBottom ? 0.0 : 0.3,
+                          physics: const ClampingScrollPhysics(),
                           itemBuilder: (context, index) {
-                            final msg = messages[index];
+                            // Index 0 is the top loader.
+                            if (index == 0) {
+                              return _isLoadingOlder
+                                  ? const Padding(
+                                      padding: EdgeInsets.symmetric(vertical: 16),
+                                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                    )
+                                  : const SizedBox.shrink();
+                            }
+                            final msg = messages[index - 1];
                             final isUnread = msg.type == 'inbound' && !msg.isRead;
                             final reactions = msg.wamId != null
                                 ? reactionsByWamId[msg.wamId!]
@@ -767,12 +755,17 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [
-                            FloatingActionButton(
-                              onPressed: _scrollToBottom,
-                              backgroundColor: AppColors.primary,
-                              mini: true,
-                              shape: const CircleBorder(),
-                              child: const Icon(Icons.keyboard_arrow_down_outlined, color: Colors.white,),
+                            GestureDetector(
+                              onTap: _scrollToBottom,
+                              child: Container(
+                                width: 40,
+                                height: 40,
+                                decoration: const BoxDecoration(
+                                  color: PiPalette.primary500,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(LucideIcons.chevronDown, size: 22, color: PiPalette.white),
+                              ),
                             ),
                             // Unread badge
                             Builder(
@@ -787,7 +780,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                                   child: Container(
                                     padding: const EdgeInsets.all(4),
                                     decoration: BoxDecoration(
-                                      color: AppColors.secondary,
+                                      color: PiPalette.ink900,
                                       shape: BoxShape.circle,
                                     ),
                                     constraints: const BoxConstraints(
@@ -798,7 +791,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                                       child: Text(
                                         '$unreadCount',
                                         style: const TextStyle(
-                                          color: Colors.white,
+                                          color: PiPalette.white,
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
                                         ),
@@ -823,6 +816,203 @@ class _ChatThreadState extends ConsumerState<ChatThread>
           _buildMessageInput(),
         ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildChatAppBar(BuildContext context) {
+    final colors = PiColors.of(context);
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        color: colors.surfaceRaised,
+        height: 56,
+        child: Row(
+          children: [
+            // Back button
+            GestureDetector(
+              onTap: () {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go('/home/chats');
+                }
+              },
+              behavior: HitTestBehavior.opaque,
+              child: const SizedBox(
+                width: 48,
+                height: 56,
+                child: Center(
+                  child: Icon(LucideIcons.arrowLeft, size: 22),
+                ),
+              ),
+            ),
+            // Avatar + name (tappable → contact details)
+            Expanded(
+              child: GestureDetector(
+                onTap: _showContactDetails,
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  children: [
+                    _buildHeaderAvatar(),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            widget.contact.fullName ?? widget.contact.phone,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: Sz.sp(context, 15),
+                              fontWeight: FontWeight.w600,
+                              color: colors.textPrimary,
+                              height: 1.2,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (widget.contact.fullName != null)
+                            Text(
+                              widget.contact.phone,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: Sz.sp(context, 12),
+                                color: colors.textSecondary,
+                                height: 1.2,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // Call button
+            GestureDetector(
+              onTap: () {
+                context.push('/call/outbound', extra: {
+                  'uuid': widget.contact.uuid,
+                  'name': widget.contact.fullName ?? widget.contact.phone,
+                  'phone': widget.contact.phone,
+                });
+              },
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(
+                width: 44,
+                height: 56,
+                child: Center(
+                  child: Icon(LucideIcons.phone, size: 20, color: colors.textPrimary),
+                ),
+              ),
+            ),
+            // Overflow menu
+            PopupMenuButton<String>(
+              icon: Icon(LucideIcons.ellipsisVertical, size: 20, color: colors.textPrimary),
+              onSelected: (value) {
+                if (value == 'media') {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => MediaGalleryScreen(
+                        contactUuid: widget.contact.uuid,
+                        contactName: widget.contact.fullName ?? widget.contact.phone,
+                      ),
+                    ),
+                  );
+                } else {
+                  _handleMenuAction(value);
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'contact',
+                  child: Row(children: [
+                    Icon(LucideIcons.user, size: 18, color: PiColors.of(context).textSecondary),
+                    const SizedBox(width: 12),
+                    Text('chat.menu.contact_details'.tr()),
+                  ]),
+                ),
+                PopupMenuItem(
+                  value: 'media',
+                  child: Row(children: [
+                    Icon(LucideIcons.image, size: 18, color: PiColors.of(context).textSecondary),
+                    const SizedBox(width: 12),
+                    Text('chat.tooltip.media_gallery'.tr()),
+                  ]),
+                ),
+                PopupMenuItem(
+                  value: 'template',
+                  child: Row(children: [
+                    Icon(LucideIcons.fileText, size: 18, color: PiColors.of(context).textSecondary),
+                    const SizedBox(width: 12),
+                    Text('chat.menu.send_template'.tr()),
+                  ]),
+                ),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'assign',
+                  child: Row(children: [
+                    Icon(LucideIcons.userPlus, size: 18, color: PiColors.of(context).textSecondary),
+                    const SizedBox(width: 12),
+                    Text('chat.menu.assign_to_agent'.tr()),
+                  ]),
+                ),
+                PopupMenuItem(
+                  value: 'status',
+                  child: Row(children: [
+                    Icon(LucideIcons.flag, size: 18, color: PiColors.of(context).textSecondary),
+                    const SizedBox(width: 12),
+                    Text('chat.menu.change_status'.tr()),
+                  ]),
+                ),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'close',
+                  child: Row(children: [
+                    Icon(LucideIcons.circleCheck, size: 18, color: PiPalette.success500),
+                    const SizedBox(width: 12),
+                    Text('chat.menu.close_ticket'.tr(), style: TextStyle(color: PiPalette.success500)),
+                  ]),
+                ),
+              ],
+            ),
+            const SizedBox(width: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderAvatar() {
+    final avatarUrl = widget.contact.avatar;
+    return SizedBox(
+      width: 36,
+      height: 36,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: PiColors.of(context).surface,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: const Icon(LucideIcons.user, size: 18, color: PiPalette.ink400),
+          ),
+          if (avatarUrl != null)
+            ClipOval(
+              child: CachedNetworkImage(
+                imageUrl: avatarUrl,
+                width: 36,
+                height: 36,
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -852,9 +1042,21 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     );
   }
 
-  /// Returns true if the contact messaged us within the last 24 hours
+  /// Returns true if the contact messaged us within the last 24 hours.
+  ///
+  /// `widget.contact.lastInboundChatAt` may be stale (e.g. loaded from local DB
+  /// which doesn't persist this field). We prefer the live in-memory copy from
+  /// `mainDataProvider`, which is updated by ReverbService whenever a new
+  /// inbound message arrives.
   bool _isWithin24HourWindow() {
-    final lastInbound = widget.contact.lastInboundChatAt;
+    // Prefer the live contact from the in-memory list.
+    final contacts = ref.read(mainDataProvider);
+    final liveContact = contacts.firstWhere(
+      (c) => c.id == widget.contact.id,
+      orElse: () => widget.contact,
+    );
+
+    final lastInbound = liveContact.lastInboundChatAt ?? widget.contact.lastInboundChatAt;
     if (lastInbound == null) return false;
     return DateTime.now().difference(lastInbound).inHours < 24;
   }
@@ -862,32 +1064,49 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   /// Banner shown when the 24-hour window has expired
   Widget _build24HourExpiredBanner() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: PiSpacing.space16,
+        vertical: PiSpacing.space12,
+      ),
       decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        border: Border(top: BorderSide(color: Colors.orange.shade200)),
+        color: PiPalette.warning500.withOpacity(0.08),
+        border: Border(top: BorderSide(color: PiPalette.warning500.withOpacity(0.3))),
       ),
       child: SafeArea(
         child: Row(
           children: [
-            Icon(Icons.timer_off_outlined, color: Colors.orange.shade700, size: 20),
-            const SizedBox(width: 10),
+            Icon(LucideIcons.clock, color: PiPalette.warning500, size: 18),
+            const SizedBox(width: PiSpacing.space8),
             Expanded(
               child: Text(
                 'chat.banner.24h_expired'.tr(),
-                style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: Sz.sp(context, 13),
+                  color: PiPalette.warning500,
+                ),
               ),
             ),
-            const SizedBox(width: 8),
-            ElevatedButton(
-              onPressed: _showTemplatePicker,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade700,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                textStyle: const TextStyle(fontSize: 13),
+            const SizedBox(width: PiSpacing.space8),
+            GestureDetector(
+              onTap: _showTemplatePicker,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: PiSpacing.space12,
+                  vertical: PiSpacing.space8,
+                ),
+                decoration: BoxDecoration(
+                  color: PiPalette.warning500,
+                  borderRadius: PiRadius.brFull,
+                ),
+                child: Text(
+                  'chat.banner.send_template_button'.tr(),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: Sz.sp(context, 13),
+                    fontWeight: FontWeight.w600,
+                    color: PiPalette.white,
+                  ),
+                ),
               ),
-              child: Text('chat.banner.send_template_button'.tr()),
             ),
           ],
         ),
@@ -1088,10 +1307,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),
             child: Icon(
-              panelOpen ? Icons.keyboard_alt_outlined : Icons.add,
+              panelOpen ? LucideIcons.chevronDown : LucideIcons.plus,
               key: ValueKey(panelOpen),
-              size: 24,
-              color: Colors.grey[700],
+              size: 22,
+              color: PiColors.of(context).textSecondary,
             ),
           ),
         ),
@@ -1101,8 +1320,12 @@ class _ChatThreadState extends ConsumerState<ChatThread>
             constraints: const BoxConstraints(maxHeight: 110, minHeight: 38),
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.grey[100],
+                color: PiColors.of(context).background,
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: PiColors.of(context).divider,
+                  width: 1.5,
+                ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -1114,17 +1337,24 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                       maxLines: 4,
                       minLines: 1,
                       textCapitalization: TextCapitalization.sentences,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textDark,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: Sz.sp(context, 14),
+                        color: PiColors.of(context).textPrimary,
                       ),
                       decoration: InputDecoration(
                         hintText: 'chat.input.hint'.tr(),
-                        hintStyle: TextStyle(
-                          color: Colors.grey[500],
-                          fontSize: 13,
+                        hintStyle: GoogleFonts.plusJakartaSans(
+                          color: PiColors.of(context).textSecondary,
+                          fontSize: Sz.sp(context, 13),
                         ),
+                        filled: true,
+                        fillColor: Colors.transparent,
                         border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                        errorBorder: InputBorder.none,
+                        focusedErrorBorder: InputBorder.none,
                         isCollapsed: true,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 14,
@@ -1150,11 +1380,11 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                           duration: const Duration(milliseconds: 180),
                           child: Icon(
                             _showEmojiPanel
-                                ? Icons.keyboard_alt_outlined
-                                : Icons.emoji_emotions_outlined,
+                                ? LucideIcons.chevronDown
+                                : LucideIcons.smile,
                             key: ValueKey(_showEmojiPanel),
-                            size: 22,
-                            color: Colors.grey[600],
+                            size: 20,
+                            color: PiColors.of(context).textSecondary,
                           ),
                         ),
                       ),
@@ -1173,17 +1403,17 @@ class _ChatThreadState extends ConsumerState<ChatThread>
           _IconTapTarget(
             onTap: () { _closePanel(); _pickImage(ImageSource.camera); },
             child: Icon(
-              Icons.camera_alt_outlined,
+              LucideIcons.camera,
               size: 22,
-              color: Colors.grey[700],
+              color: PiColors.of(context).textSecondary,
             ),
           ),
           _IconTapTarget(
             onTap: _startRecording,
             child: Icon(
-              Icons.mic_none_rounded,
+              LucideIcons.mic,
               size: 22,
-              color: Colors.grey[700],
+              color: PiColors.of(context).textSecondary,
             ),
           ),
           const SizedBox(width: 4),
@@ -1201,12 +1431,12 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                 width: 38,
                 height: 38,
                 decoration: const BoxDecoration(
-                  color: AppColors.primary,
+                  color: PiPalette.primary500,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
-                  Icons.send_rounded,
-                  color: Colors.white,
+                  LucideIcons.send,
+                  color: PiPalette.white,
                   size: 18,
                 ),
               ),
@@ -1224,15 +1454,15 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         // LEFT: trash to abort
         _IconTapTarget(
           onTap: _cancelRecording,
-          child: Icon(Icons.delete_outline,
-              size: 22, color: Colors.red[600]),
+          child: Icon(LucideIcons.trash2,
+              size: 22, color: PiColors.of(context).error),
         ),
         // CENTER: pulsing red dot + elapsed timer in a pill
         Expanded(
           child: Container(
             height: 38,
             decoration: BoxDecoration(
-              color: Colors.grey[100],
+              color: PiColors.of(context).surface,
               borderRadius: BorderRadius.circular(20),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1242,10 +1472,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                 const SizedBox(width: 10),
                 Text(
                   _formatRecDuration(_recordElapsed),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontFeatures: [FontFeature.tabularFigures()],
-                    color: AppColors.textDark,
+                    color: PiColors.of(context).textPrimary,
                   ),
                 ),
                 const Spacer(),
@@ -1253,7 +1483,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                   'Recording…',
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey[600],
+                    color: PiColors.of(context).textSecondary,
                   ),
                 ),
               ],
@@ -1268,11 +1498,11 @@ class _ChatThreadState extends ConsumerState<ChatThread>
             width: 38,
             height: 38,
             decoration: const BoxDecoration(
-              color: AppColors.primary,
+              color: PiPalette.primary500,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.stop_rounded,
-                color: Colors.white, size: 20),
+            child: const Icon(LucideIcons.square,
+                color: PiPalette.white, size: 18),
           ),
         ),
       ],
@@ -1287,34 +1517,38 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         _IconTapTarget(
           onTap: _deleteRecording,
           child:
-              Icon(Icons.delete_outline, size: 22, color: Colors.red[600]),
+              Icon(LucideIcons.trash2, size: 22, color: PiColors.of(context).error),
         ),
         // CENTER: play/pause + position text inside the same pill as input
         Expanded(
           child: Container(
             height: 38,
             decoration: BoxDecoration(
-              color: Colors.grey[100],
+              color: PiColors.of(context).surface,
               borderRadius: BorderRadius.circular(20),
             ),
             padding: const EdgeInsets.only(left: 4, right: 14),
             child: Row(
               children: [
-                IconButton(
-                  onPressed: _togglePreviewPlayback,
-                  iconSize: 22,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                      minWidth: 32, minHeight: 32),
-                  icon: Icon(
-                    _previewIsPlaying
-                        ? Icons.pause_circle_filled
-                        : Icons.play_circle_fill,
-                    color: AppColors.primary,
+                GestureDetector(
+                  onTap: _togglePreviewPlayback,
+                  behavior: HitTestBehavior.opaque,
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: Center(
+                      child: Icon(
+                        _previewIsPlaying
+                            ? LucideIcons.circlePause
+                            : LucideIcons.circlePlay,
+                        size: 24,
+                        color: PiPalette.primary500,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 6),
-                const Icon(Icons.mic, size: 14, color: Colors.black54),
+                Icon(LucideIcons.mic, size: 14, color: PiColors.of(context).textSecondary),
                 const SizedBox(width: 4),
                 Expanded(
                   child: StreamBuilder<Duration>(
@@ -1327,10 +1561,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                       final shown = _previewIsPlaying ? pos : total;
                       return Text(
                         _formatRecDuration(shown),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           fontFeatures: [FontFeature.tabularFigures()],
-                          color: AppColors.textDark,
+                          color: PiColors.of(context).textPrimary,
                         ),
                       );
                     },
@@ -1348,11 +1582,11 @@ class _ChatThreadState extends ConsumerState<ChatThread>
             width: 38,
             height: 38,
             decoration: const BoxDecoration(
-              color: AppColors.primary,
+              color: PiPalette.primary500,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.send_rounded,
-                color: Colors.white, size: 18),
+            child: const Icon(LucideIcons.send,
+                color: PiPalette.white, size: 18),
           ),
         ),
       ],
@@ -1361,6 +1595,12 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   /// Build the message input widget — WhatsApp style
   Widget _buildMessageInput() {
+    // Watch mainDataProvider so this rebuilds when contacts refresh from API
+    // (which populates lastInboundChatAt that isn't stored in the local DB).
+    ref.watch(mainDataProvider.select(
+      (contacts) => contacts.firstWhere((c) => c.id == widget.contact.id, orElse: () => widget.contact).lastInboundChatAt,
+    ));
+
     if (!_isWithin24HourWindow()) {
       return _build24HourExpiredBanner();
     }
@@ -1370,20 +1610,24 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: PiColors.of(context).surfaceRaised,
         boxShadow: [
           BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, -1)),
         ],
       ),
       child: SafeArea(
+        top: false,
+        bottom: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             // ── Input row ──
             Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 6,
+              padding: EdgeInsets.only(
+                left: 8,
+                right: 8,
+                top: 6,
+                bottom: panelOpen ? 6 : 6 + MediaQuery.viewPaddingOf(context).bottom,
               ),
               child: _isRecording
                   ? _buildRecordingRow()
@@ -1411,12 +1655,12 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   Widget _buildAttachmentPanel(Size size) {
     // 4-column grid, 2 rows — each option has a colored circle + label
     final actions = [
-      (Icons.photo_library_rounded,   'chat.attachment.gallery'.tr(),  const Color(0xFF1A73E8), () { _closePanel(); _pickImage(ImageSource.gallery); }),
-      (Icons.camera_alt_rounded,      'chat.attachment.camera'.tr(),   const Color(0xFF202124), () { _closePanel(); _pickImage(ImageSource.camera); }),
-      (Icons.location_on_rounded,     'Location',                       const Color(0xFF34A853), () { _closePanel(); _shareLocation(); }),
-      (Icons.person_rounded,          'Contact',                        const Color(0xFF9AA0A6), () { _closePanel(); _shareContact(); }),
-      (Icons.insert_drive_file_rounded,'chat.attachment.document'.tr(), const Color(0xFF1A73E8), () { _closePanel(); _pickDocument(); }),
-      (Icons.flash_on_rounded,        'Quick Reply',                    const Color(0xFFF9AB00), () { _closePanel(); _showQuickReplyPicker(); }),
+      (LucideIcons.image,    'chat.attachment.gallery'.tr(),  const Color(0xFF1A73E8), () { _closePanel(); _pickImage(ImageSource.gallery); }),
+      (LucideIcons.camera,   'chat.attachment.camera'.tr(),   const Color(0xFF202124), () { _closePanel(); _pickImage(ImageSource.camera); }),
+      (LucideIcons.mapPin,   'Location',                       const Color(0xFF34A853), () { _closePanel(); _shareLocation(); }),
+      (LucideIcons.user,     'Contact',                        const Color(0xFF9AA0A6), () { _closePanel(); _shareContact(); }),
+      (LucideIcons.fileText, 'chat.attachment.document'.tr(), const Color(0xFF1A73E8), () { _closePanel(); _pickDocument(); }),
+      (LucideIcons.zap,      'Quick Reply',                    const Color(0xFFF9AB00), () { _closePanel(); _showQuickReplyPicker(); }),
     ];
 
     final circleSize = size.width * 0.155;
@@ -1424,20 +1668,20 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
     return Container(
       width: double.infinity,
-      color: const Color(0xFFF0EBE1), // WhatsApp's warm cream background
+      color: PiColors.of(context).surface,
       padding: EdgeInsets.fromLTRB(
         size.width * 0.04,
-        size.height * 0.025,
+        12,
         size.width * 0.04,
-        size.height * 0.02,
+        12 + MediaQuery.viewPaddingOf(context).bottom,
       ),
       child: GridView.count(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         crossAxisCount: 4,
-        mainAxisSpacing: size.height * 0.024,
+        mainAxisSpacing: size.width * 0.04,
         crossAxisSpacing: size.width * 0.02,
-        childAspectRatio: 0.85,
+        childAspectRatio: 1.0,
         children: actions.map((a) {
           return GestureDetector(
             onTap: a.$4,
@@ -1448,11 +1692,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                   width: circleSize,
                   height: circleSize,
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: PiColors.of(context).surfaceRaised,
                     shape: BoxShape.circle,
                     boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.08),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
@@ -1465,7 +1708,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                   a.$2,
                   style: TextStyle(
                     fontSize: size.width * 0.029,
-                    color: Colors.grey[700],
+                    color: PiColors.of(context).textSecondary,
                     fontWeight: FontWeight.w500,
                   ),
                   textAlign: TextAlign.center,
@@ -1491,10 +1734,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     ];
 
     return Container(
-      height: size.height * 0.28,
-      color: Colors.white,
+      height: size.height * 0.28 + MediaQuery.viewPaddingOf(context).bottom,
+      color: PiColors.of(context).surfaceRaised,
       child: GridView.builder(
-        padding: EdgeInsets.all(size.width * 0.02),
+        padding: EdgeInsets.fromLTRB(size.width * 0.02, size.width * 0.02, size.width * 0.02, size.width * 0.02 + MediaQuery.viewPaddingOf(context).bottom),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 8,
           crossAxisSpacing: size.width * 0.005,
@@ -1546,7 +1789,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('chat.snackbar.error_picking_image'.tr(namedArgs: {'error': e.toString()})), backgroundColor: AppColors.error),
+          SnackBar(content: Text('chat.snackbar.error_picking_image'.tr(namedArgs: {'error': e.toString()})), backgroundColor: PiPalette.error500),
         );
       }
     }
@@ -1574,7 +1817,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('chat.snackbar.error_picking_file'.tr(namedArgs: {'error': e.toString()})), backgroundColor: AppColors.error),
+          SnackBar(content: Text('chat.snackbar.error_picking_file'.tr(namedArgs: {'error': e.toString()})), backgroundColor: PiPalette.error500),
         );
       }
     }
@@ -1701,16 +1944,13 @@ class _IconTapTarget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final button = Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Center(child: child),
-        ),
+    final button = GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(child: child),
       ),
     );
     if (tooltip == null) return button;
@@ -1745,7 +1985,7 @@ class _PulsingRedDotState extends State<_PulsingRedDot>
         width: 10,
         height: 10,
         decoration: const BoxDecoration(
-          color: Colors.red,
+          color: PiPalette.error500,
           shape: BoxShape.circle,
         ),
       ),

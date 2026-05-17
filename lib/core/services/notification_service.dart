@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/features/calls/application/call_fcm_handler.dart';
 
 /// FCM Push Notification Service for handling incoming notifications
@@ -60,6 +61,15 @@ class NotificationService {
 
     // Initialize local notifications
     await _initializeLocalNotifications();
+
+    // On iOS: suppress the system banner/sound while the app is in the
+    // foreground. Reverb delivers live updates; the foreground message handler
+    // in this service controls any in-app UI (banners, badges, etc.).
+    await _messaging.setForegroundNotificationPresentationOptions(
+      alert: false,
+      badge: false,
+      sound: false,
+    );
 
     // Get FCM token — on iOS the APNS token may not be ready immediately,
     // so retry a few times with a short delay before giving up.
@@ -180,17 +190,29 @@ class NotificationService {
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
     print('NotificationService: Foreground message received: ${message.messageId}');
 
-    // Phase 3: incoming-call wake-ups go straight to the call controller via
-    // the global container set up in main.dart.
+    // Incoming-call wake-ups go straight to the call controller.
     if (message.data['type'] == 'incoming_call' && _container != null) {
       await handleIncomingCallFcm(_container!, message);
       return;
     }
 
+    // new_message pushes: the server sends data-only (no notification block),
+    // so iOS/Android never auto-display anything. We decide here based on state:
+    //   • Contacts list (activeContactId == null)  → no banner, list updates live via Reverb.
+    //   • Same chat open                           → silent, message appears live via Reverb.
+    //   • Different chat open                      → in-app banner via inAppNotificationProvider.
+    // ReverbService already handles the in-app banner on the socket path, so FCM
+    // is just a wake-up fallback — we suppress the local notification entirely in
+    // foreground and let Reverb do the UI work.
+    if (message.data['type'] == 'new_message') {
+      // Foreground: fully handled by ReverbService. Do nothing.
+      return;
+    }
+
+    // Any other push type with a notification payload — show it as a local notification.
     final notification = message.notification;
     if (notification == null) return;
 
-    // Show local notification
     await _localNotifications.show(
       id: message.hashCode,
       title: notification.title ?? 'New Message',
@@ -262,13 +284,52 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('NotificationService: Background message received: ${message.messageId}');
-  // Phase 3: high-priority call wake-ups arrive as data-only pushes with
-  // `type=incoming_call`. We must surface the native CallKit UI from this
-  // background isolate; the SDP exchange happens later from the main isolate
-  // when the user accepts and the app is foregrounded.
+
   if (message.data['type'] == 'incoming_call') {
-    // Firebase is already initialized by the system before our handler runs.
-    // ignore: avoid_dynamic_calls
     await backgroundShowCallkitFromFcm(message);
+    return;
+  }
+
+  // new_message: the server now sends a notification block for reliable
+  // App Store / production APNs delivery. When a notification block is present,
+  // iOS/Android already display it natively — we must NOT show a second local
+  // notification (would double-display). Only show locally for data-only fallback.
+  if (message.data['type'] == 'new_message') {
+    // Native notification already shown by the OS — nothing to do.
+    if (message.notification != null) return;
+
+    // Data-only fallback path (should not happen with current backend, but kept
+    // as a safety net in case the server is temporarily rolled back).
+    final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificationsPlugin();
+
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosSettings = DarwinInitializationSettings();
+    await localNotifications.initialize(
+      settings: const InitializationSettings(android: androidSettings, iOS: iosSettings),
+    );
+
+    final title = message.data['sender_name'] as String? ?? 'New message';
+    final body = message.data['body'] as String? ?? '';
+
+    await localNotifications.show(
+      id: message.hashCode,
+      title: title,
+      body: body.isEmpty ? 'New message' : body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'high_importance_channel',
+          'New Messages',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      payload: message.data['contact_uuid'],
+    );
   }
 }

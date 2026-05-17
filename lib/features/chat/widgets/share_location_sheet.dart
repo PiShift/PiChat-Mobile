@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 
 /// Result returned by [showShareLocationSheet] when the user confirms.
 class ShareLocationResult {
@@ -106,9 +107,9 @@ class _ShareLocationSheetState extends State<_ShareLocationSheet> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        decoration: BoxDecoration(
+          color: PiColors.of(context).surfaceRaised,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
         ),
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         child: Column(
@@ -121,7 +122,7 @@ class _ShareLocationSheetState extends State<_ShareLocationSheet> {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: PiColors.of(context).divider,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 
 class CampaignsManagementScreen extends StatelessWidget {
@@ -9,9 +10,9 @@ class CampaignsManagementScreen extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: PiColors.of(context).background,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: PiColors.of(context).background,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         title: Text(
@@ -19,7 +20,7 @@ class CampaignsManagementScreen extends StatelessWidget {
           style: TextStyle(
             fontSize: size.width * 0.045,
             fontWeight: FontWeight.bold,
-            color: AppColors.textDark,
+            color: PiColors.of(context).textPrimary,
           ),
         ),
       ),
@@ -27,16 +28,16 @@ class CampaignsManagementScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.campaign_outlined, size: size.width * 0.15, color: Colors.grey[300]),
+            Icon(Icons.campaign_outlined, size: size.width * 0.15, color: PiColors.of(context).ink400),
             SizedBox(height: size.height * 0.02),
             Text(
               'Campaigns',
-              style: TextStyle(fontSize: size.width * 0.045, fontWeight: FontWeight.bold, color: AppColors.textDark),
+              style: TextStyle(fontSize: size.width * 0.045, fontWeight: FontWeight.bold, color: PiColors.of(context).textPrimary),
             ),
             SizedBox(height: size.height * 0.008),
             Text(
               'Manage and schedule your WhatsApp campaigns here.',
-              style: TextStyle(fontSize: size.width * 0.033, color: Colors.grey[500]),
+              style: TextStyle(fontSize: size.width * 0.033, color: PiColors.of(context).textSecondary),
               textAlign: TextAlign.center,
             ),
           ],

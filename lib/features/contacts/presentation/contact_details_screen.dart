@@ -1,10 +1,12 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/data/repositories/contact_repository.dart';
 import 'package:pichat/data/repositories/team_repository.dart';
+import 'package:pichat/features/chat/presentation/media_gallery_screen.dart';
 import 'package:pichat/features/chat/presentation/widgets/agent_picker_sheet.dart';
 
 /// Screen to view and edit contact details
@@ -98,7 +100,7 @@ class _ContactDetailsScreenState extends ConsumerState<ContactDetailsScreen> {
                   const SizedBox(height: 4),
                   Text(
                     widget.contact.phone,
-                    style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 16, color: PiColors.of(context).textSecondary),
                   ),
                 ],
               ),
@@ -247,6 +249,15 @@ class _ContactDetailsScreenState extends ConsumerState<ContactDetailsScreen> {
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () {
                       // Navigate to media gallery
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MediaGalleryScreen(
+                            contactUuid: widget.contact.uuid,
+                            contactName: widget.contact.fullName ?? widget.contact.phone,
+                          ),
+                        ),
+                      );
                     },
                   ),
                   const Divider(height: 1),
@@ -382,12 +393,12 @@ class _InfoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.grey[600]),
+          Icon(icon, size: 20, color: PiColors.of(context).textSecondary),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              Text(label, style: TextStyle(fontSize: 12, color: PiColors.of(context).textSecondary)),
               Text(value, style: const TextStyle(fontSize: 14)),
             ],
           ),
@@ -426,13 +437,13 @@ class _StatusBadge extends StatelessWidget {
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'open':
-        return Colors.green;
+        return PiPalette.success500;
       case 'pending':
-        return Colors.orange;
+        return PiPalette.warning500;
       case 'closed':
-        return Colors.grey;
+        return PiPalette.ink400;
       default:
-        return Colors.blue;
+        return PiPalette.info500;
     }
   }
 }

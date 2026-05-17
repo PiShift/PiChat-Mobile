@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_x/flutter_secure_storage_x.dart';
+import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/features/calls/application/call_controller.dart';
@@ -295,11 +296,14 @@ class ReverbService {
         .getSingleOrNull();
 
     if (contact != null) {
-      // Only inbound messages bump the unread badge. Outbound messages (and
-      // their later read-receipt status updates) come through the same
-      // broadcast pipeline with `is_read=0` from the server, so without this
-      // guard every message we send would increment our own unread count.
-      final shouldBumpUnread = chat.type == 'inbound' && !chat.isRead;
+      // Only real inbound content bumps the unread badge.
+      // Reactions and unsupported events (stickers sent as reactions, polls,
+      // etc.) are inbound+unread on the server but should not count as new
+      // messages from the user's perspective.
+      final metaType = chat.metadata?['type'] as String?;
+      final isReaction = metaType == 'reaction';
+      final isUnsupported = metaType == 'unsupported';
+      final shouldBumpUnread = chat.type == 'inbound' && !chat.isRead && !isReaction && !isUnsupported;
       final updated = contact.copyWith(
         lastChatId: Value(chat.id),
         latestChatCreatedAt: Value(chat.createdAt),
@@ -315,80 +319,106 @@ class ReverbService {
     final controller = _ref.read(mainDataProvider.notifier);
     controller.updateContactWithNewMessage(chat);
 
-    // Defensive: invalidate the messages stream AFTER a short delay so Drift's
-    // own watch() notification has time to fire first (avoids a race where
-    // invalidate cancels the old stream before Drift delivers the change,
-    // causing the new stream to miss the update on iOS).
-    Future.delayed(const Duration(milliseconds: 200), () {
-      try {
-        _ref.invalidate(messagesProvider(chat.contactId));
-      } catch (e) {
-        print('⚠️ failed to invalidate messagesProvider: $e');
-      }
-    });
+    // Drift's watch() on the chats table automatically delivers the new row
+    // to any active StreamProvider listener — no invalidate needed.
+    // Calling invalidate here caused a loading→data cycle that remounted
+    // ScrollablePositionedList and triggered a hard snap-to-bottom bounce.
   }
 
-  /// Show a local notification for incoming messages
+  /// Handle notifications for incoming messages.
+  ///
+  /// - App in background/killed  → system local notification.
+  /// - App in foreground, same chat open → do nothing (user sees the message live).
+  /// - App in foreground, different chat or another screen → in-app banner.
   void _showLocalNotification(String contactName, Chat chat) async {
-    // Check if app is in background
+    final messageBody = _buildMessageBody(chat);
     final appState = WidgetsBinding.instance.lifecycleState;
-    if (appState == AppLifecycleState.resumed) {
-      // App is in foreground, don't show notification
+    final isInForeground = appState == AppLifecycleState.resumed;
+
+    if (!isInForeground) {
+      final localNotifications = FlutterLocalNotificationsPlugin();
+      await localNotifications.show(
+        id: chat.id,
+        title: contactName,
+        body: messageBody,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'high_importance_channel',
+            'New Messages',
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+        payload: chat.contactId.toString(),
+      );
       return;
     }
 
-    // Get message text from metadata
-    String messageBody = 'New message';
+    // App is in foreground — show in-app banner only if this isn't the open chat.
+    final activeContactId = _ref.read(activeContactIdProvider);
+    if (activeContactId == chat.contactId) {
+      // User is already reading this conversation — no banner needed.
+      return;
+    }
+
+    _ref.read(inAppNotificationProvider.notifier).state = InAppNotification(
+      contactId: chat.contactId,
+      contactName: contactName,
+      body: messageBody,
+    );
+  }
+
+  /// Build a short human-readable description of the message for notifications.
+  String _buildMessageBody(Chat chat) {
+    String body = 'New message';
     try {
       final meta = chat.metadata;
       if (meta != null) {
-        switch (chat.type) {
+        final metaType = meta['type'] as String? ?? 'text';
+        String? rawText;
+        switch (metaType) {
           case 'text':
-            messageBody = meta['text']?['body'] ?? 'New message';
+            rawText = meta['text']?['body'] as String?;
+            body = rawText ?? 'New message';
             break;
           case 'image':
-            messageBody = '📷 Image';
+            rawText = meta['image']?['caption'] as String?;
+            body = rawText != null ? '📷 $rawText' : '📷 Image';
             break;
           case 'video':
-            messageBody = '🎥 Video';
+            rawText = meta['video']?['caption'] as String?;
+            body = rawText != null ? '🎥 $rawText' : '🎥 Video';
             break;
           case 'audio':
-            messageBody = '🎵 Audio';
+            body = '🎵 Audio';
             break;
           case 'document':
-            messageBody = '📄 Document';
+            rawText = meta['document']?['caption'] as String?
+                ?? meta['document']?['filename'] as String?;
+            body = rawText != null ? '📄 $rawText' : '📄 Document';
             break;
           case 'sticker':
-            messageBody = '🎨 Sticker';
+            body = '🎨 Sticker';
+            break;
+          case 'location':
+            body = '📍 Location';
+            break;
+          case 'contacts':
+            body = '👤 Contact card';
             break;
           default:
-            messageBody = 'New message';
+            body = 'New message';
         }
+        if (body.length > 100) body = '${body.substring(0, 97)}…';
       }
     } catch (_) {}
-
-    final localNotifications = FlutterLocalNotificationsPlugin();
-    
-    await localNotifications.show(
-      id: chat.id, // Use chat ID as notification ID
-      title: contactName,
-      body: messageBody,
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'high_importance_channel',
-          'New Messages',
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
-        ),
-        iOS: DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-        ),
-      ),
-      payload: chat.contactId.toString(),
-    );
+    return body;
   }
 
   // ---------------------------------------------------------------------------

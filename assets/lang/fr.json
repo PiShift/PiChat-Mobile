@@ -22,6 +22,10 @@
   "home": {
     "nav": {
       "chats": "Discussions",
+      "calls": "Appels",
+      "groups": "Groupes",
+      "templates": "Modèles",
+      "campaigns": "Campagnes",
       "settings": "Paramètres"
     }
   },

@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart' hide TextDirection;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/repositories/template_repository.dart';
 
@@ -79,7 +80,7 @@ class _TemplatePickerScreenState extends ConsumerState<TemplatePickerScreen> {
                 hintText: 'templates.search.hint'.tr(),
                 prefixIcon: const Icon(Icons.search, size: 20),
                 filled: true,
-                fillColor: Colors.grey[100],
+                fillColor: PiColors.of(context).surface,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -132,7 +133,7 @@ class _TemplatePickerScreenState extends ConsumerState<TemplatePickerScreen> {
                   children: [
                     Icon(Icons.error_outline, color: Colors.red[300], size: 48),
                     const SizedBox(height: 12),
-                    Text('templates.error.load_failed'.tr(), style: TextStyle(color: Colors.grey[600])),
+                    Text('templates.error.load_failed'.tr(), style: TextStyle(color: PiColors.of(context).textSecondary)),
                     const SizedBox(height: 12),
                     ElevatedButton(
                       onPressed: () => ref.invalidate(templatesProvider),
@@ -162,9 +163,9 @@ class _TemplatePickerScreenState extends ConsumerState<TemplatePickerScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.description_outlined, color: Colors.grey[400], size: 48),
-                        const SizedBox(height: 12),
-                        Text('templates.empty.no_templates'.tr(), style: TextStyle(color: Colors.grey[600])),
+                        Icon(Icons.description_outlined, color: PiColors.of(context).ink400, size: 48),
+                        const SizedBox(height: 8),
+                        Text('templates.empty.no_templates'.tr(), style: TextStyle(color: PiColors.of(context).textSecondary)),
                       ],
                     ),
                   );
@@ -351,7 +352,7 @@ class _SendSheetState extends State<_SendSheet> {
       'IMAGE'    => (Icons.image_outlined,       'Image',    Colors.blue),
       'VIDEO'    => (Icons.videocam_outlined,    'Video',    Colors.purple),
       'DOCUMENT' => (Icons.description_outlined, 'Document', Colors.orange),
-      _          => (Icons.attach_file,          'File',     Colors.grey),
+      _          => (Icons.attach_file,          'File',     PiPalette.ink400),
     };
 
     return Column(
@@ -389,18 +390,18 @@ class _SendSheetState extends State<_SendSheet> {
                             if (_pickedMedia!.size > 0)
                               Text(
                                 _formatFileSize(_pickedMedia!.size),
-                                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                                style: TextStyle(fontSize: 11, color: PiColors.of(context).textSecondary),
                               ),
                           ],
                         )
                       : Text(
                           'Tap to pick $label',
-                          style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                          style: TextStyle(fontSize: 13, color: PiColors.of(context).textSecondary),
                         ),
                 ),
                 Icon(
                   _pickedMedia != null ? Icons.check_circle : Icons.upload_file,
-                  color: _pickedMedia != null ? Colors.green : Colors.grey[400],
+                  color: _pickedMedia != null ? PiPalette.success500 : PiColors.of(context).ink400,
                   size: 20,
                 ),
               ],
@@ -472,15 +473,15 @@ class _SendSheetState extends State<_SendSheet> {
       minChildSize: 0.4,
       maxChildSize: 0.95,
       builder: (_, scrollController) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: PiColors.of(context).surfaceRaised,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
           children: [
             // Drag handle
             const SizedBox(height: 12),
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: PiColors.of(context).divider, borderRadius: BorderRadius.circular(2))),
             const SizedBox(height: 16),
             // Title row
             Padding(
@@ -518,7 +519,7 @@ class _SendSheetState extends State<_SendSheet> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'for ${widget.contactName}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 12, color: PiColors.of(context).textSecondary),
                 ),
               ),
             ),
@@ -631,9 +632,9 @@ class _VariableField extends StatelessWidget {
           labelText: label,
           hintText: hint,
           filled: true,
-          fillColor: Colors.grey[50],
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey[300]!)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey[300]!)),
+          fillColor: PiColors.of(context).surface,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: PiColors.of(context).divider)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: PiColors.of(context).divider)),
           focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
           contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         ),
@@ -701,7 +702,7 @@ class _TemplateCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         side: isSelected
             ? const BorderSide(color: AppColors.primary, width: 2)
-            : BorderSide(color: Colors.grey.shade200),
+            : BorderSide(color: PiColors.of(context).divider),
       ),
       child: InkWell(
         onTap: onTap,
@@ -742,7 +743,7 @@ class _TemplateCard extends StatelessWidget {
               // Preview text
               Text(
                 template.preview,
-                style: TextStyle(color: Colors.grey[600], fontSize: 13, height: 1.35),
+                style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 13, height: 1.35),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 textDirection: _isRtlLanguage(template.language) ? TextDirection.rtl : TextDirection.ltr,
@@ -814,7 +815,7 @@ class _TemplateCard extends StatelessWidget {
       case 'AUTHENTICATION':
         return Colors.green;
       default:
-        return Colors.grey;
+        return PiPalette.ink400;
     }
   }
 }

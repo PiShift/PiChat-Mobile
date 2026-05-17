@@ -2,11 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:pichat/core/theme/app_colors.dart';
+import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/data/models/chat_media_model.dart';
 import 'package:pichat/features/chat/application/media_providers.dart';
-
-import 'chat_item.dart';
 
 class AudioPreview extends ConsumerStatefulWidget {
   final ChatMedia media;
@@ -212,12 +214,8 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
     }
 
     return Container(
-      width: ChatMessageItem.mediaMaxWidth,
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(8),
-      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -231,15 +229,21 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
               ),
             )
           else
-            IconButton(
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              onPressed: hasLocalFile ? () => _togglePlay(localPath) : _download,
-              icon: Icon(
-                hasLocalFile
-                    ? (_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill)
-                    : Icons.download_for_offline,
-                size: 32,
+            GestureDetector(
+              onTap: hasLocalFile ? () => _togglePlay(localPath) : _download,
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(
+                width: 32,
+                height: 32,
+                child: Center(
+                  child: Icon(
+                    hasLocalFile
+                        ? (_isPlaying ? LucideIcons.circlePause : LucideIcons.circlePlay)
+                        : LucideIcons.download,
+                    size: 28,
+                    color: PiColors.of(context).primary500,
+                  ),
+                ),
               ),
             ),
           const SizedBox(width: 8),
@@ -251,15 +255,20 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
                 LinearProgressIndicator(
                   value: hasLocalFile ? progress : 0.0,
                   minHeight: 3,
+                  color: PiColors.of(context).primary500,
+                  backgroundColor: PiColors.of(context).divider,
                 ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Icon(Icons.mic, size: 14, color: Colors.black54),
+                    Icon(LucideIcons.mic, size: 14, color: PiColors.of(context).textSecondary),
                     const SizedBox(width: 4),
                     Text(
                       label,
-                      style: const TextStyle(fontSize: 11, color: Colors.black54),
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: Sz.sp(context, 11),
+                        color: PiColors.of(context).textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -268,7 +277,10 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
                       playback.error!,
-                      style: const TextStyle(color: Colors.red, fontSize: 10),
+                      style: GoogleFonts.plusJakartaSans(
+                        color: PiColors.of(context).error,
+                        fontSize: Sz.sp(context, 10),
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),

@@ -63,11 +63,13 @@ class MainDataController extends StateNotifier<List<Contact>> {
       // Only update if the new message is newer
       if (contact.latestChatCreatedAt == null ||
           chat.createdAt.isAfter(contact.latestChatCreatedAt!)) {
+        final isInbound = chat.type == 'inbound';
         final newContact = contact.copyWith(
           lastChatId: chat.id,
           lastChat: chat,
           latestChatCreatedAt: chat.createdAt,
           unreadCount: (contact.unreadCount ?? 0) + (chat.isRead ? 0 : 1),
+          lastInboundChatAt: isInbound ? chat.createdAt : contact.lastInboundChatAt,
         );
 
         // Move to top only if not already at top

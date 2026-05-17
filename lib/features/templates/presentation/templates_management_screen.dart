@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/repositories/template_repository.dart';
 
@@ -51,9 +52,9 @@ class _TemplatesManagementScreenState extends ConsumerState<TemplatesManagementS
     final size = MediaQuery.sizeOf(context);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: PiColors.of(context).background,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: PiColors.of(context).background,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         title: Text(
@@ -61,13 +62,13 @@ class _TemplatesManagementScreenState extends ConsumerState<TemplatesManagementS
           style: TextStyle(
             fontSize: size.width * 0.045,
             fontWeight: FontWeight.bold,
-            color: AppColors.textDark,
+            color: PiColors.of(context).textPrimary,
           ),
         ),
         actions: [
           if (_currentTab == 1)
             IconButton(
-              icon: Icon(Icons.add, size: size.width * 0.055, color: AppColors.textDark),
+              icon: Icon(Icons.add, size: size.width * 0.055, color: PiColors.of(context).textPrimary),
               onPressed: () => _cannedRepliesTabKey.currentState?.openAddDialog(),
               tooltip: 'New Reply',
             ),
@@ -75,9 +76,9 @@ class _TemplatesManagementScreenState extends ConsumerState<TemplatesManagementS
         ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: AppColors.primary,
-          unselectedLabelColor: Colors.grey[500],
-          indicatorColor: AppColors.primary,
+          labelColor: PiPalette.primary500,
+          unselectedLabelColor: PiColors.of(context).textSecondary,
+          indicatorColor: PiPalette.primary500,
           indicatorWeight: 2,
           labelStyle: TextStyle(fontSize: size.width * 0.033, fontWeight: FontWeight.w600),
           tabs: const [
@@ -136,10 +137,10 @@ class _TemplatesTabState extends ConsumerState<_TemplatesTab> {
               style: TextStyle(fontSize: size.width * 0.034),
               decoration: InputDecoration(
                 hintText: 'templates.search.hint'.tr(),
-                hintStyle: TextStyle(fontSize: size.width * 0.032, color: Colors.grey[500]),
-                prefixIcon: Icon(Icons.search, size: size.width * 0.043, color: Colors.grey[500]),
+                hintStyle: TextStyle(fontSize: size.width * 0.032, color: PiColors.of(context).textSecondary),
+                prefixIcon: Icon(Icons.search, size: size.width * 0.043, color: PiColors.of(context).textSecondary),
                 filled: true,
-                fillColor: AppColors.surface,
+                fillColor: PiColors.of(context).surface,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                   borderSide: BorderSide.none,
@@ -168,15 +169,15 @@ class _TemplatesTabState extends ConsumerState<_TemplatesTab> {
                     duration: const Duration(milliseconds: 150),
                     padding: EdgeInsets.symmetric(horizontal: size.width * 0.028, vertical: 3),
                     decoration: BoxDecoration(
-                      color: selected ? AppColors.primary : AppColors.surface,
+                      color: selected ? PiPalette.primary500 : PiColors.of(context).surface,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: selected ? AppColors.primary : AppColors.greyBorder),
+                      border: Border.all(color: selected ? PiPalette.primary500 : PiColors.of(context).divider),
                     ),
                     child: Text(
                       cat == 'All' ? 'templates.category.all'.tr() : cat.toLowerCase().capitalizeFirst(),
                       style: TextStyle(
                         fontSize: size.width * 0.029,
-                        color: selected ? Colors.white : AppColors.textDark,
+                        color: selected ? PiPalette.white : PiColors.of(context).textPrimary,
                         fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
                       ),
                     ),
@@ -192,7 +193,7 @@ class _TemplatesTabState extends ConsumerState<_TemplatesTab> {
         Expanded(
           child: templatesAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('templates.error.load_failed'.tr(), style: TextStyle(color: Colors.grey[600]))),
+            error: (e, _) => Center(child: Text('templates.error.load_failed'.tr(), style: TextStyle(color: PiColors.of(context).textSecondary))),
             data: (templates) {
               final filtered = templates.where((t) {
                 final matchSearch = _search.isEmpty ||
@@ -203,7 +204,7 @@ class _TemplatesTabState extends ConsumerState<_TemplatesTab> {
               }).toList();
 
               if (filtered.isEmpty) {
-                return Center(child: Text('templates.empty.no_templates'.tr(), style: TextStyle(color: Colors.grey[500], fontSize: 13)));
+                return Center(child: Text('templates.empty.no_templates'.tr(), style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 13)));
               }
 
               return ListView.separated(
@@ -255,7 +256,7 @@ class _TemplateListItem extends StatelessWidget {
                     Expanded(
                       child: Text(
                         template.name,
-                        style: TextStyle(fontSize: size.width * 0.035, fontWeight: FontWeight.w600, color: AppColors.textDark),
+                        style: TextStyle(fontSize: size.width * 0.035, fontWeight: FontWeight.w600, color: PiColors.of(context).textPrimary),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -276,14 +277,14 @@ class _TemplateListItem extends StatelessWidget {
                 SizedBox(height: size.height * 0.003),
                 Text(
                   template.preview,
-                  style: TextStyle(fontSize: size.width * 0.031, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: size.width * 0.031, color: PiColors.of(context).textSecondary),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
                 SizedBox(height: size.height * 0.003),
                 Text(
                   '${template.category} · ${template.language.toUpperCase()}',
-                  style: TextStyle(fontSize: size.width * 0.028, color: Colors.grey[400]),
+                  style: TextStyle(fontSize: size.width * 0.028, color: PiColors.of(context).ink400),
                 ),
               ],
             ),
@@ -295,19 +296,19 @@ class _TemplateListItem extends StatelessWidget {
 
   Color _categoryColor(String cat) {
     switch (cat.toUpperCase()) {
-      case 'MARKETING': return Colors.orange;
-      case 'UTILITY': return Colors.blue;
-      case 'AUTHENTICATION': return Colors.green;
-      default: return Colors.grey;
+      case 'MARKETING': return PiPalette.warning500;
+      case 'UTILITY': return PiPalette.info500;
+      case 'AUTHENTICATION': return PiPalette.success500;
+      default: return PiPalette.ink400;
     }
   }
 
   Color _statusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'approved': return Colors.green;
-      case 'rejected': return Colors.red;
-      case 'pending': return Colors.orange;
-      default: return Colors.grey;
+      case 'approved': return PiPalette.success500;
+      case 'rejected': return PiPalette.error500;
+      case 'pending': return PiPalette.warning500;
+      default: return PiPalette.ink400;
     }
   }
 }
@@ -352,10 +353,10 @@ class _CannedRepliesTabState extends ConsumerState<_CannedRepliesTab> {
                   style: TextStyle(fontSize: size.width * 0.034),
                   decoration: InputDecoration(
                     hintText: 'quick_replies.search.hint'.tr(),
-                    hintStyle: TextStyle(fontSize: size.width * 0.032, color: Colors.grey[500]),
-                    prefixIcon: Icon(Icons.search, size: size.width * 0.043, color: Colors.grey[500]),
+                    hintStyle: TextStyle(fontSize: size.width * 0.032, color: PiColors.of(context).textSecondary),
+                    prefixIcon: Icon(Icons.search, size: size.width * 0.043, color: PiColors.of(context).textSecondary),
                     filled: true,
-                    fillColor: AppColors.surface,
+                    fillColor: PiColors.of(context).surface,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                     isDense: true,
                     contentPadding: EdgeInsets.zero,
@@ -371,9 +372,9 @@ class _CannedRepliesTabState extends ConsumerState<_CannedRepliesTab> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.reply_all, size: 36, color: Colors.grey[300]),
+                      Icon(Icons.reply_all, size: 36, color: PiColors.of(context).ink400),
                       SizedBox(height: size.height * 0.012),
-                      Text('quick_replies.error.load_failed'.tr(), style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                      Text('quick_replies.error.load_failed'.tr(), style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 13)),
                       SizedBox(height: size.height * 0.012),
                       TextButton(onPressed: () => ref.invalidate(cannedRepliesProvider), child: const Text('Retry')),
                     ],
@@ -389,7 +390,7 @@ class _CannedRepliesTabState extends ConsumerState<_CannedRepliesTab> {
                         }).toList();
 
                   if (filtered.isEmpty) {
-                    return Center(child: Text('quick_replies.empty.no_replies'.tr(), style: TextStyle(color: Colors.grey[500], fontSize: 13)));
+                    return Center(child: Text('quick_replies.empty.no_replies'.tr(), style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 13)));
                   }
 
                   return ListView.separated(
@@ -454,7 +455,7 @@ class _CannedRepliesTabState extends ConsumerState<_CannedRepliesTab> {
           actions: [
             TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: const Text('Cancel')),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              style: ElevatedButton.styleFrom(backgroundColor: PiPalette.primary500),
               onPressed: saving
                   ? null
                   : () async {
@@ -474,13 +475,13 @@ class _CannedRepliesTabState extends ConsumerState<_CannedRepliesTab> {
                       } catch (e) {
                         setInnerState(() => saving = false);
                         if (ctx.mounted) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error));
+                          ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: PiPalette.error500));
                         }
                       }
                     },
               child: saving
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : Text(existing == null ? 'Create' : 'Save', style: const TextStyle(color: Colors.white)),
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: PiPalette.white))
+                  : Text(existing == null ? 'Create' : 'Save', style: const TextStyle(color: PiPalette.white)),
             ),
           ],
         ),
@@ -498,7 +499,7 @@ class _CannedRepliesTabState extends ConsumerState<_CannedRepliesTab> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            style: ElevatedButton.styleFrom(backgroundColor: PiPalette.error500),
             onPressed: () async {
               Navigator.pop(ctx);
               try {
@@ -507,11 +508,11 @@ class _CannedRepliesTabState extends ConsumerState<_CannedRepliesTab> {
                 ref.invalidate(cannedRepliesProvider);
               } catch (e) {
                 if (ctx.mounted) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error));
+                  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: PiPalette.error500));
                 }
               }
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+            child: const Text('Delete', style: TextStyle(color: PiPalette.white)),
           ),
         ],
       ),
@@ -536,32 +537,32 @@ class _CannedReplyItem extends StatelessWidget {
           Container(
             padding: EdgeInsets.symmetric(horizontal: size.width * 0.025, vertical: 3),
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
+              color: PiPalette.primary500.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
               reply.shortcut,
-              style: TextStyle(fontSize: size.width * 0.03, color: AppColors.primary, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: size.width * 0.03, color: PiPalette.primary500, fontWeight: FontWeight.w600),
             ),
           ),
           SizedBox(width: size.width * 0.03),
           Expanded(
             child: Text(
               reply.content,
-              style: TextStyle(fontSize: size.width * 0.032, color: Colors.grey[700]),
+              style: TextStyle(fontSize: size.width * 0.032, color: PiColors.of(context).textSecondary),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),
           IconButton(
-            icon: Icon(Icons.edit_outlined, size: size.width * 0.043, color: Colors.grey[500]),
+            icon: Icon(Icons.edit_outlined, size: size.width * 0.043, color: PiColors.of(context).textSecondary),
             onPressed: onEdit,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
           ),
           SizedBox(width: size.width * 0.02),
           IconButton(
-            icon: Icon(Icons.delete_outline, size: size.width * 0.043, color: Colors.red[300]),
+            icon: Icon(Icons.delete_outline, size: size.width * 0.043, color: PiColors.of(context).error),
             onPressed: onDelete,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),

@@ -1,5 +1,10 @@
   import 'package:flutter/material.dart';
   import 'package:flutter_riverpod/flutter_riverpod.dart';
+  import 'package:google_fonts/google_fonts.dart';
+  import 'package:lucide_icons_flutter/lucide_icons.dart';
+  import 'package:pichat/core/theme/app_colors.dart';
+  import 'package:pichat/core/theme/app_radius.dart';
+  import 'package:pichat/core/theme/app_sizing.dart';
   import 'package:pichat/data/models/chat_media_model.dart';
   import 'package:pichat/features/chat/application/media_providers.dart';
   import 'package:open_file/open_file.dart';
@@ -31,16 +36,16 @@
     IconData _getIconForMediaType() {
       switch (mediaType.toLowerCase()) {
         case 'pdf':
-          return Icons.picture_as_pdf;
+          return LucideIcons.fileText;
         case 'doc':
         case 'docx':
-          return Icons.description;
+          return LucideIcons.fileText;
         case 'video':
-          return Icons.video_file;
+          return LucideIcons.video;
         case 'audio':
-          return Icons.audio_file;
+          return LucideIcons.mic;
         default:
-          return Icons.insert_drive_file;
+          return LucideIcons.file;
       }
     }
 
@@ -54,17 +59,13 @@
 
       return Container(
         padding: const EdgeInsets.all(12),
-        width: 240,
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(8),
-        ),
+        width: double.infinity,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(_getIconForMediaType(), size: 40, color: Colors.blue),
+                Icon(_getIconForMediaType(), size: 36, color: PiColors.of(context).primary500),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -72,16 +73,20 @@
                     children: [
                       Text(
                         media.name ?? 'Document',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w600,
+                          fontSize: Sz.sp(context, 13),
+                          color: PiColors.of(context).textPrimary,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 4),
                       Text(
                         _formatFileSize(int.tryParse(media.size ?? '') ?? 0),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade700,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: Sz.sp(context, 12),
+                          color: PiColors.of(context).textSecondary,
                         ),
                       ),
                     ],
@@ -95,37 +100,50 @@
             if (mediaState.error != null)
               Text(
                 'Error: ${mediaState.error}',
-                style: const TextStyle(color: Colors.red, fontSize: 12),
+                style: GoogleFonts.plusJakartaSans(
+                  color: PiColors.of(context).error,
+                  fontSize: Sz.sp(context, 12),
+                ),
               ),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 if (!isAlreadyDownloaded && !mediaState.isDownloading)
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.download, size: 18),
-                    label: const Text('Download'),
-                    onPressed: () {
+                  GestureDetector(
+                    onTap: () {
                       ref
                           .read(mediaPlaybackProvider(mediaId).notifier)
                           .downloadMedia(contactId, mediaType, metaUrl: media.metaUrl, metaId: metaId);
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      textStyle: const TextStyle(fontSize: 14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: PiColors.of(context).primary500,
+                        borderRadius: BorderRadius.circular(PiRadius.full),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(LucideIcons.download, size: 16, color: PiPalette.white),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Download',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: Sz.sp(context, 13),
+                              fontWeight: FontWeight.w600,
+                              color: PiPalette.white,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   )
                 else if (isAlreadyDownloaded)
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.open_in_new, size: 18),
-                    label: const Text('Open'),
-                    onPressed: () async {
+                  GestureDetector(
+                    onTap: () async {
                       if (effectiveLocalPath != null) {
                         final result = await OpenFile.open(effectiveLocalPath);
-                        // If the system couldn't open the file (e.g. no handler
-                        // on iOS), fall back to the remote URL in the browser.
                         if (result.type != ResultType.done &&
                             media.metaUrl != null) {
                           final uri = Uri.tryParse(media.metaUrl!);
@@ -142,11 +160,27 @@
                         }
                       }
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      textStyle: const TextStyle(fontSize: 14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: PiPalette.success500,
+                        borderRadius: BorderRadius.circular(PiRadius.full),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(LucideIcons.externalLink, size: 16, color: PiPalette.white),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Open',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: Sz.sp(context, 13),
+                              fontWeight: FontWeight.w600,
+                              color: PiPalette.white,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
               ],

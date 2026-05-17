@@ -14,7 +14,7 @@ import 'package:pichat/services/reverb_singleton.dart';
 
 import 'core/router/app_router.dart';
 import 'core/state/auth_state.dart';
-import 'core/theme/app_theme.dart';
+import 'core/theme/theme_provider.dart';
 import 'data/db/database_provider.dart';
 import 'data/repositories/settings_repository.dart';
 import 'features/calls/application/call_controller.dart';
@@ -32,8 +32,9 @@ Future<void> main() async {
   // Register background message handler - must be done before any Firebase Messaging usage
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  // Initialize notification service (requests permission + gets FCM token)
-  await NotificationService().initialize();
+  // Initialize notification service in the background — do NOT await so it
+  // never blocks the splash screen. Token fetching on iOS can take many seconds.
+  NotificationService().initialize().catchError((_) {});
 
   // Clear any zombie CallKit entries left over from a previous session.
   // (Old builds could leave malformed quoted-uuid entries that CallKit
@@ -80,24 +81,23 @@ Future<void> main() async {
       }
 
       // Register FCM token with backend (user is already logged in)
+      // Run after app launches to avoid blocking the splash screen
       final dio = container.read(dioProvider);
-      await NotificationService().registerTokenWithBackend(dio);
+      NotificationService().registerTokenWithBackend(dio).catchError((_) {});
 
       // Also register the device with the calling backend so FcmDispatcher
       // can wake this phone for incoming WhatsApp calls. We mark the agent
       // available immediately on app launch — they can flip to offline from
       // the in-app settings.
       final fcmToken = NotificationService().fcmToken;
-      try {
-        await container.read(callApiProvider).updateAgentStatus(
-              status: 'available',
-              deviceToken: fcmToken,
-              devicePlatform: defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
-            );
-      } catch (e) {
+      container.read(callApiProvider).updateAgentStatus(
+            status: 'available',
+            deviceToken: fcmToken,
+            devicePlatform: defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
+          ).catchError((e) {
         // Non-fatal: calling features may not be enabled for this org.
         debugPrint('updateAgentStatus failed at boot: $e');
-      }
+      });
     }
   }
 
@@ -146,7 +146,9 @@ class _PiChatAppState extends ConsumerState<PiChatApp> {
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'PiChat',
-      theme: ref.watch(appThemeProvider),
+      theme: ref.watch(lightThemeProvider),
+      darkTheme: ref.watch(darkThemeProvider),
+      themeMode: ref.watch(resolvedThemeModeProvider),
       routerConfig: ref.watch(appRouterProvider),
       locale: context.locale,
       supportedLocales: context.supportedLocales,

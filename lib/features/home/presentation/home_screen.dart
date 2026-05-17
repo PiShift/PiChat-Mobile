@@ -5,8 +5,14 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../../core/services/notification_service.dart';
+import '../../../data/db/database_provider.dart';
+import '../../../data/models/contact_model.dart';
+import '../../chat/application/main_controller.dart';
+import '../../chat/widgets/in_app_notification_banner.dart';
+import '../../../shared/widgets/pi_bottom_nav.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key, required this.child});
@@ -21,8 +27,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   void initState() {
-    requestPermissions();
     super.initState();
+    requestPermissions();
+    // Consume any pending navigation stored by a background notification tap.
+    // We defer until after the first frame so GoRouter is ready.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _handlePendingNotificationNav());
+  }
+
+  Future<void> _handlePendingNotificationNav() async {
+    final contactUuid = NotificationService().consumePendingNavigation();
+    if (contactUuid == null || !mounted) return;
+
+    // Try the live in-memory list first (fast, no I/O).
+    final contacts = ref.read(mainDataProvider);
+    Contact? contact;
+    try {
+      contact = contacts.firstWhere((c) => c.uuid == contactUuid);
+    } catch (_) {
+      contact = null;
+    }
+
+    // Fallback: query the local DB if not in memory yet.
+    if (contact == null) {
+      final db = ref.read(appDatabaseProvider);
+      final row = await (db.select(db.contacts)
+            ..where((t) => t.uuid.equals(contactUuid)))
+          .getSingleOrNull();
+      if (row == null || !mounted) return;
+      contact = Contact.fromDb(row);
+    }
+
+    if (!mounted) return;
+    // Use go() so back always returns to the contacts list.
+    context.go('/home/chats/detail', extra: contact);
   }
 
   void _onTabSelected(int index) {
@@ -35,12 +72,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         context.go('/home/calls');
         break;
       case 2:
-        context.go('/home/templates');
+        context.go('/home/groups');
         break;
       case 3:
-        context.go('/home/campaigns');
+        context.go('/home/templates');
         break;
       case 4:
+        context.go('/home/campaigns');
+        break;
+      case 5:
         context.go('/home/settings');
         break;
     }
@@ -72,50 +112,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
     final hide = _hideBottomNav;
 
     return Scaffold(
-      body: widget.child,
+      body: Stack(
+        children: [
+          widget.child,
+          const InAppNotificationBanner(),
+        ],
+      ),
       bottomNavigationBar: hide
           ? null
-          : BottomNavigationBar(
+          : PiBottomNavBar(
               currentIndex: _currentIndex,
-              selectedItemColor: AppColors.primary,
-              unselectedItemColor: Colors.grey[500],
-              backgroundColor: Colors.white,
-              type: BottomNavigationBarType.fixed,
-              selectedLabelStyle: TextStyle(fontSize: size.width * 0.028, fontWeight: FontWeight.w600),
-              unselectedLabelStyle: TextStyle(fontSize: size.width * 0.027),
-              iconSize: size.width * 0.058,
-              elevation: 8,
               onTap: _onTabSelected,
               items: [
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.chat_bubble_outline),
-                  activeIcon: const Icon(Icons.chat_bubble),
-                  label: 'home.nav.chats'.tr(),
-                ),
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.call_outlined),
-                  activeIcon: const Icon(Icons.call),
-                  label: 'Calls',
-                ),
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.description_outlined),
-                  activeIcon: const Icon(Icons.description),
-                  label: 'Templates',
-                ),
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.campaign_outlined),
-                  activeIcon: const Icon(Icons.campaign),
-                  label: 'Campaigns',
-                ),
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.settings_outlined),
-                  activeIcon: const Icon(Icons.settings),
-                  label: 'home.nav.settings'.tr(),
-                ),
+                PiNavItem(icon: LucideIcons.messageCircle, label: 'home.nav.chats'.tr()),
+                PiNavItem(icon: LucideIcons.phone,          label: 'home.nav.calls'.tr()),
+                PiNavItem(icon: LucideIcons.users,          label: 'home.nav.groups'.tr()),
+                PiNavItem(icon: LucideIcons.fileText,       label: 'home.nav.templates'.tr()),
+                PiNavItem(icon: LucideIcons.megaphone,      label: 'home.nav.campaigns'.tr()),
+                PiNavItem(icon: LucideIcons.settings,       label: 'home.nav.settings'.tr()),
               ],
             ),
     );

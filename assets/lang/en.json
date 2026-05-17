@@ -22,6 +22,10 @@
   "home": {
     "nav": {
       "chats": "Chats",
+      "calls": "Calls",
+      "groups": "Groups",
+      "templates": "Templates",
+      "campaigns": "Campaigns",
       "settings": "Settings"
     }
   },

@@ -1,0 +1,244 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 91.0.0 (100.0.0 available)
+  _flutterfire_internals 1.3.66 (1.3.71 available)
+  analyzer 8.4.1 (13.0.0 available)
+  archive 4.0.7 (4.0.9 available)
+  async 2.13.0 (2.13.1 available)
+! audio_session 0.2.2 (overridden) (0.2.3 available)
+  build 4.0.4 (4.0.6 available)
+  build_config 1.2.0 (1.3.0 available)
+  build_runner 2.11.0 (2.15.0 available)
+  built_value 8.12.3 (8.12.6 available)
+  cli_util 0.4.2 (0.5.1 available)
+  cupertino_icons 1.0.8 (1.0.9 available)
+  dart_style 3.1.3 (3.1.9 available)
+  dio 5.9.1 (5.9.2 available)
+  dio_web_adapter 2.1.1 (2.1.2 available)
+  drift 2.31.0 (2.33.0 available)
+  drift_dev 2.31.0 (2.33.0 available)
+  ffi 2.1.5 (2.2.0 available)
+  file_picker 10.3.10 (11.0.2 available)
+  firebase_core 4.4.0 (4.9.0 available)
+  firebase_core_platform_interface 6.0.2 (7.0.1 available)
+  firebase_core_web 3.4.0 (3.7.0 available)
+  firebase_messaging 16.1.1 (16.2.2 available)
+  firebase_messaging_platform_interface 4.7.6 (4.7.11 available)
+  firebase_messaging_web 4.1.2 (4.1.7 available)
+! flutter_callkit_incoming 2.5.8 (overridden) (3.0.0 available)
+  flutter_contacts 1.1.9+2 (2.0.2 available)
+  flutter_lints 5.0.0 (6.0.0 available)
+  flutter_local_notifications 20.0.0 (21.0.0 available)
+  flutter_local_notifications_linux 7.0.0 (8.0.0 available)
+  flutter_local_notifications_platform_interface 10.0.0 (11.0.0 available)
+  flutter_local_notifications_windows 2.0.0 (3.0.0 available)
+  flutter_plugin_android_lifecycle 2.0.33 (2.0.34 available)
+  flutter_riverpod 3.2.1 (3.3.1 available)
+  flutter_secure_storage_x 12.0.0 (13.0.1 available)
+  flutter_secure_storage_x_linux 1.4.5 (1.5.2 available)
+  flutter_secure_storage_x_macos 3.4.4 (3.5.2 available)
+  flutter_secure_storage_x_platform_interface 1.4.2 (2.0.0 available)
+  flutter_secure_storage_x_web 2.1.5 (2.2.2 available)
+  flutter_secure_storage_x_windows 3.3.7 (3.4.2 available)
+! flutter_webrtc 0.13.1+hotfix.1 (overridden) (1.4.1 available)
+  go_router 17.1.0 (17.2.3 available)
+  google_fonts 8.0.1 (8.1.0 available)
+  icons_launcher 3.0.3 (3.1.0 available)
+  image 4.7.2 (4.8.0 available)
+  image_picker 1.2.1 (1.2.2 available)
+  image_picker_android 0.8.13+13 (0.8.13+17 available)
+  json_annotation 4.10.0 (4.12.0 available)
+  lints 5.1.1 (6.1.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  meta 1.17.0 (1.18.2 available)
+  package_info_plus 9.0.1 (10.1.0 available)
+  package_info_plus_platform_interface 3.2.1 (4.1.0 available)
+  path_provider_android 2.2.22 (2.3.1 available)
+  path_provider_foundation 2.5.1 (2.6.0 available)
+  petitparser 7.0.1 (7.0.2 available)
+  posix 6.0.3 (6.5.0 available)
+  pusher_client_socket 0.0.7 (0.0.8 available)
+  record 5.2.1 (6.2.0 available)
+! record_linux 1.3.0 (overridden)
+  shared_preferences 2.5.4 (2.5.5 available)
+  shared_preferences_android 2.4.20 (2.4.23 available)
+  shared_preferences_platform_interface 2.4.1 (2.4.2 available)
+  source_gen 4.2.0 (4.2.3 available)
+  sqflite 2.4.2 (2.4.2+1 available)
+  sqflite_android 2.4.2+2 (2.4.2+3 available)
+  sqflite_common 2.5.6 (2.5.7 available)
+  sqlite3 2.9.4 (3.3.1 available)
+  sqlite3_flutter_libs 0.5.41 (0.6.0+eol available)
+  sqlparser 0.43.1 (0.44.4 available)
+  synchronized 3.4.0 (3.4.0+1 available)
+  test 1.30.0 (1.31.1 available)
+  test_api 0.7.10 (0.7.12 available)
+  test_core 0.6.16 (0.6.18 available)
+  timezone 0.10.1 (0.11.0 available)
+  url_launcher_android 6.3.28 (6.3.29 available)
+  url_launcher_ios 6.3.6 (6.4.1 available)
+  url_launcher_web 2.4.2 (2.4.3 available)
+  uuid 4.5.2 (4.5.3 available)
+  vector_math 2.2.0 (2.3.0 available)
+  vm_service 15.0.2 (15.2.0 available)
+! wakelock_plus 1.5.2 (overridden) (1.6.1 available)
+  wakelock_plus_platform_interface 1.5.0 (1.5.1 available)
+  win32 5.15.0 (6.2.0 available)
+  xml 6.6.1 (7.0.1 available)
+Got dependencies!
+84 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing pichat...                                             
+
+   info • Don't invoke 'print' in production code • lib/core/network/dio_provider.dart:78:26 • avoid_print
+warning • The value of the local variable 'authState' isn't used • lib/core/router/app_router.dart:27:9 • unused_local_variable
+   info • Don't invoke 'print' in production code • lib/core/router/app_router.dart:57:7 • avoid_print
+warning • Unused import: 'package:pichat/core/state/auth_state.dart' • lib/core/services/notification_service.dart:6:8 • unused_import
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:41:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:54:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:58:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:78:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:80:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:85:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:102:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:127:11 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:172:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:184:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:186:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:191:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:239:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:271:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:273:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/core/services/notification_service.dart:286:3 • avoid_print
+warning • Unused import: 'package:flutter/cupertino.dart' • lib/core/state/auth_state.dart:2:8 • unused_import
+warning • Unused import: 'package:pichat/data/db/app_database.dart' • lib/core/state/auth_state.dart:7:8 • unused_import
+   info • Don't invoke 'print' in production code • lib/core/state/auth_state.dart:59:3 • avoid_print
+   info • Don't invoke 'print' in production code • lib/data/db/app_database.dart:205:5 • avoid_print
+warning • Unused import: 'dart:convert' • lib/data/models/chat_media_model.dart:1:8 • unused_import
+warning • Unused import: 'dart:convert' • lib/data/models/contact_model.dart:1:8 • unused_import
+   info • Don't invoke 'print' in production code • lib/data/repositories/auth_repository.dart:49:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/data/repositories/auth_repository.dart:51:7 • avoid_print
+warning • The stack trace variable 'st' isn't used and can be removed • lib/data/repositories/auth_repository.dart:148:17 • unused_catch_stack
+warning • The value of the field '_ref' isn't used • lib/data/repositories/chat_repository.dart:32:13 • unused_field
+warning • The value of the field '_maxRetries' isn't used • lib/data/repositories/chat_repository.dart:45:13 • unused_field
+   info • Don't invoke 'print' in production code • lib/data/repositories/chat_repository.dart:597:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/data/repositories/chat_repository.dart:598:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/data/repositories/chat_repository.dart:608:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/data/repositories/chat_repository.dart:623:7 • avoid_print
+warning • Unused import: 'package:pichat/data/models/user_model.dart' • lib/data/repositories/contact_repository.dart:9:8 • unused_import
+warning • Duplicate import • lib/data/repositories/contact_repository.dart:10:8 • duplicate_import
+warning • The value of the field '_ref' isn't used • lib/data/repositories/contact_repository.dart:21:13 • unused_field
+warning • Unused import: 'dart:io' • lib/data/repositories/media_repository.dart:1:8 • unused_import
+warning • Unused import: 'package:path_provider/path_provider.dart' • lib/data/repositories/media_repository.dart:3:8 • unused_import
+   info • Don't invoke 'print' in production code • lib/data/repositories/media_repository.dart:54:7 • avoid_print
+warning • The value of the field '_ref' isn't used • lib/data/repositories/org_repository.dart:17:13 • unused_field
+warning • The value of the field '_ref' isn't used • lib/data/repositories/user_repository.dart:17:13 • unused_field
+   info • Don't invoke 'print' in production code • lib/data/services/meta_media_service.dart:10:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/data/services/meta_media_service.dart:11:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/data/services/meta_media_service.dart:23:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/data/services/meta_media_service.dart:43:7 • avoid_print
+   info • The file name 'organization_ notifier.dart' isn't a lower_case_with_underscores identifier • lib/data/services/organization_ notifier.dart:1:1 • file_names
+warning • Unused import: 'package:flutter_riverpod/flutter_riverpod.dart' • lib/data/services/organization_ notifier.dart:1:8 • unused_import
+warning • Unused import: 'package:flutter/cupertino.dart' • lib/data/services/tfa_notifier.dart:1:8 • unused_import
+warning • Unused import: 'package:flutter_riverpod/flutter_riverpod.dart' • lib/data/services/tfa_notifier.dart:2:8 • unused_import
+warning • Unused import: 'package:flutter_riverpod/flutter_riverpod.dart' • lib/data/services/user_notifier.dart:1:8 • unused_import
+warning • Unused import: 'package:pichat/core/state/auth_state.dart' • lib/data/services/user_notifier.dart:3:8 • unused_import
+warning • Unused import: 'package:flutter/cupertino.dart' • lib/features/auth/application/auth_controller.dart:2:8 • unused_import
+   info • The import of 'package:flutter/cupertino.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' • lib/features/auth/presentation/login_screen.dart:2:8 • unnecessary_import
+warning • Unused import: 'package:go_router/go_router.dart' • lib/features/auth/presentation/login_screen.dart:6:8 • unused_import
+warning • Unused import: 'package:pichat/core/router/app_router.dart' • lib/features/auth/presentation/login_screen.dart:8:8 • unused_import
+   info • Don't invoke 'print' in production code • lib/features/auth/presentation/login_screen.dart:38:5 • avoid_print
+warning • The value of the local variable 'authState' isn't used • lib/features/auth/presentation/login_screen.dart:47:11 • unused_local_variable
+   info • The import of 'package:flutter/cupertino.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' • lib/features/auth/presentation/tfa_screen.dart:3:8 • unnecessary_import
+warning • Unused import: 'package:pichat/core/network/dio_provider.dart' • lib/features/auth/presentation/tfa_screen.dart:8:8 • unused_import
+warning • Unused import: 'package:pichat/data/repositories/auth_repository.dart' • lib/features/auth/presentation/tfa_screen.dart:12:8 • unused_import
+warning • Unused import: 'package:pichat/shared/base/BaseInput.dart' • lib/features/auth/presentation/tfa_screen.dart:15:8 • unused_import
+   info • Don't use 'BuildContext's across async gaps • lib/features/auth/presentation/tfa_screen.dart:96:42 • use_build_context_synchronously
+   info • Don't invoke 'print' in production code • lib/features/calls/application/call_controller.dart:231:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/features/calls/application/call_controller.dart:273:11 • avoid_print
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/calls/presentation/in_call_screen.dart:88:54 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/calls/presentation/in_call_screen.dart:176:35 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/calls/presentation/outbound_call_screen.dart:80:53 • deprecated_member_use
+warning • Unused import: 'package:flutter_riverpod/flutter_riverpod.dart' • lib/features/chat/application/main_controller.dart:1:8 • unused_import
+warning • The value of the field '_chatRepo' isn't used • lib/features/chat/application/main_controller.dart:20:24 • unused_field
+warning • The value of the field '_db' isn't used • lib/features/chat/application/main_controller.dart:21:21 • unused_field
+   info • Don't invoke 'print' in production code • lib/features/chat/application/main_controller.dart:52:7 • avoid_print
+warning • The left operand can't be null, so the right operand is never executed • lib/features/chat/application/main_controller.dart:71:48 • dead_null_aware_expression
+warning • The left operand can't be null, so the right operand is never executed • lib/features/chat/application/main_controller.dart:107:49 • dead_null_aware_expression
+warning • Unused import: 'dart:convert' • lib/features/chat/application/media_providers.dart:1:8 • unused_import
+warning • Unused import: 'package:pichat/data/db/app_database.dart' • lib/features/chat/application/message_provider.dart:3:8 • unused_import
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/presentation/chat_screen.dart:157:69 • deprecated_member_use
+   info • The import of 'package:flutter/cupertino.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' • lib/features/chat/presentation/chat_threads.dart:5:8 • unnecessary_import
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/presentation/new_chat_screen.dart:186:56 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/presentation/widgets/agent_picker_sheet.dart:186:48 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/presentation/widgets/agent_picker_sheet.dart:356:24 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/presentation/widgets/quick_reply_picker.dart:261:40 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/presentation/widgets/quick_reply_picker.dart:352:37 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/presentation/widgets/quick_reply_picker.dart:370:50 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/widgets/audio_preview.dart:218:29 • deprecated_member_use
+   info • The import of 'package:flutter/cupertino.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' • lib/features/chat/widgets/chat_item.dart:5:8 • unnecessary_import
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/widgets/chat_item.dart:197:47 • deprecated_member_use
+warning • The declaration '_formatFileSize' isn't referenced • lib/features/chat/widgets/chat_item.dart:456:10 • unused_element
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/widgets/chat_item.dart:680:45 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/widgets/chat_item.dart:776:47 • deprecated_member_use
+   info • Don't use 'BuildContext's across async gaps • lib/features/chat/widgets/chat_item.dart:912:43 • use_build_context_synchronously
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/widgets/chat_item.dart:1068:35 • deprecated_member_use
+   info • The file name 'contactItem.dart' isn't a lower_case_with_underscores identifier • lib/features/chat/widgets/contactItem.dart:1:1 • file_names
+   info • The import of 'package:flutter/cupertino.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' • lib/features/chat/widgets/contactItem.dart:1:8 • unnecessary_import
+   info • The imported package 'intl' isn't a dependency of the importing package • lib/features/chat/widgets/contactItem.dart:3:8 • depend_on_referenced_packages
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/widgets/contactItem.dart:49:52 • deprecated_member_use
+   info • Parameter 'key' could be a super parameter • lib/features/chat/widgets/document_preview.dart:15:11 • use_super_parameters
+   info • Don't invoke 'print' in production code • lib/features/chat/widgets/image_preview.dart:102:15 • avoid_print
+warning • The declaration '_cacheFromServer' isn't referenced • lib/features/chat/widgets/image_preview.dart:149:16 • unused_element
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/chat/widgets/in_app_notification_banner.dart:116:60 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/contacts/presentation/contact_details_screen.dart:78:56 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/contacts/presentation/contact_details_screen.dart:422:22 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/groups/presentation/group_detail_screen.dart:168:53 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/groups/presentation/group_detail_screen.dart:184:51 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/features/groups/presentation/groups_screen.dart:133:44 • deprecated_member_use
+   info • 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre • lib/features/groups/presentation/groups_screen.dart:249:15 • deprecated_member_use
+warning • Unused import: 'package:pichat/features/auth/application/auth_controller.dart' • lib/features/select_organization/presentation/select_org_screen.dart:10:8 • unused_import
+   info • Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check • lib/features/settings/presentation/settings_screen.dart:406:33 • use_build_context_synchronously
+   info • The imported package 'firebase_core' isn't a dependency of the importing package • lib/main.dart:2:8 • depend_on_referenced_packages
+warning • Unused import: 'package:flutter_secure_storage_x/flutter_secure_storage_x.dart' • lib/services/reverb_service.dart:8:8 • unused_import
+warning • Unused import: 'package:pichat/features/chat/application/message_provider.dart' • lib/services/reverb_service.dart:14:8 • unused_import
+warning • Unused import: 'package:web_socket_channel/status.dart' • lib/services/reverb_service.dart:16:8 • unused_import
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:52:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:58:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:77:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:81:11 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:83:11 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:98:13 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:105:13 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:111:13 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:120:11 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:126:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:142:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:166:9 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:178:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:179:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:200:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:216:5 • avoid_print
+warning • The operand must be 'null', so the condition is always 'true' • lib/services/reverb_service.dart:245:19 • unnecessary_null_comparison
+warning • The '!' will have no effect because the receiver can't be null • lib/services/reverb_service.dart:272:50 • unnecessary_non_null_assertion
+warning • The '!' will have no effect because the receiver can't be null • lib/services/reverb_service.dart:276:52 • unnecessary_non_null_assertion
+warning • The left operand can't be null, so the right operand is never executed • lib/services/reverb_service.dart:310:46 • dead_null_aware_expression
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:449:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/reverb_service.dart:456:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/websocket_service.dart:28:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/websocket_service.dart:32:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/websocket_service.dart:36:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/websocket_service.dart:40:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/websocket_service.dart:50:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/websocket_service.dart:51:7 • avoid_print
+   info • The file name 'BaseButton.dart' isn't a lower_case_with_underscores identifier • lib/shared/base/BaseButton.dart:1:1 • file_names
+warning • This class (or a class that this class inherits from) is marked as '@immutable', but one or more of its instance fields aren't final: BaseButton.onTap, BaseButton.color, BaseButton.borcolor, BaseButton.textColor, BaseButton.textSize, BaseButton.width, BaseButton.height, BaseButton.type • lib/shared/base/BaseButton.dart:5:7 • must_be_immutable
+   info • Invalid use of a private type in a public API • lib/shared/base/BaseButton.dart:42:3 • library_private_types_in_public_api
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/shared/base/BaseButton.dart:60:86 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/shared/base/BaseButton.dart:64:94 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/shared/base/BaseButton.dart:77:100 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/shared/base/BaseButton.dart:104:106 • deprecated_member_use
+   info • The file name 'BaseInput.dart' isn't a lower_case_with_underscores identifier • lib/shared/base/BaseInput.dart:1:1 • file_names
+   info • Unnecessary instance of 'Container' • lib/shared/base/BaseInput.dart:93:12 • avoid_unnecessary_containers
+   info • Parameter 'key' could be a super parameter • lib/shared/base/BaseInput.dart:130:9 • use_super_parameters
+

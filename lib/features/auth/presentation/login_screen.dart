@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pichat/core/constants/app_constants.dart';
 import 'package:pichat/core/router/app_router.dart';
 import 'package:pichat/core/state/auth_state.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/features/auth/application/auth_controller.dart';
 import 'package:pichat/shared/base/BaseButton.dart';
@@ -127,7 +128,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       revealPassword
                           ? Icons.visibility
                           : Icons.visibility_off,
-                      color: revealPassword ? AppColors.primary : Colors.grey,
+                      color: revealPassword ? AppColors.primary : PiColors.of(context).ink400,
                     ),
                     onPressed: () {
                       setState(() {

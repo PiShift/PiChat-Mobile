@@ -15,6 +15,28 @@ import 'package:pichat/data/services/user_notifier.dart';
 
 final authTokenProvider = StateProvider<String?>((ref) => null);
 final userIdProvider = StateProvider<int?>((ref) => null);
+
+/// ID of the contact whose chat thread is currently open (null if not in a chat).
+/// Used by [ReverbService] to suppress in-app banners for the active conversation.
+final activeContactIdProvider = StateProvider<int?>((ref) => null);
+
+/// Payload for a temporary in-app notification banner shown when a message
+/// arrives from a contact other than the currently open one.
+class InAppNotification {
+  final int contactId;
+  final String contactName;
+  final String body;
+
+  const InAppNotification({
+    required this.contactId,
+    required this.contactName,
+    required this.body,
+  });
+}
+
+/// Holds the pending in-app notification (null when nothing to show).
+/// [ReverbService] writes here; the [InAppNotificationBanner] widget reads it.
+final inAppNotificationProvider = StateProvider<InAppNotification?>((ref) => null);
 final tfaTokenProvider = StateNotifierProvider<TfaNotifier, String?>((ref) => TfaNotifier());
 // final databaseProvider = Provider<AppDatabase>((ref) => AppDatabase());
 

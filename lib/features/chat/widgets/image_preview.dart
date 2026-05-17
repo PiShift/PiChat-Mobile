@@ -2,6 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:pichat/core/theme/app_colors.dart';
+import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/data/models/chat_media_model.dart';
 import 'package:pichat/features/chat/application/media_providers.dart';
 
@@ -45,24 +49,18 @@ class ImagePreview extends ConsumerWidget {
     if (resolvedLocal != null) {
       return GestureDetector(
         onTap: () => _showFullScreenImage(context, resolvedLocal),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.file(
-            File(resolvedLocal),
-            width: ChatMessageItem.mediaMaxWidth,
-            height: ChatMessageItem.mediaMaxWidth,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _buildNetworkOrDownload(context, ref, playbackState),
-          ),
+        child: Image.file(
+          File(resolvedLocal),
+          width: double.infinity,
+          height: ChatMessageItem.mediaMaxHeight,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _buildNetworkOrDownload(context, ref, playbackState),
         ),
       );
     }
 
     // No local file — show network image or download prompt (no full-screen wrapper that would eat taps)
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: _buildNetworkOrDownload(context, ref, playbackState),
-    );
+    return _buildNetworkOrDownload(context, ref, playbackState);
   }
 
   Widget _buildNetworkOrDownload(BuildContext context, WidgetRef ref, MediaPlaybackState playbackState) {
@@ -72,12 +70,12 @@ class ImagePreview extends ConsumerWidget {
         onTap: () => _showFullScreenImage(context, null),
         child: Image.network(
           media.path!,
-          width: ChatMessageItem.mediaMaxWidth,
-          height: ChatMessageItem.mediaMaxWidth,
+          width: double.infinity,
+          height: ChatMessageItem.mediaMaxHeight,
           fit: BoxFit.cover,
-          loadingBuilder: (_, child, progress) =>
-              progress == null ? child : _buildPlaceholder(isLoading: true),
-          errorBuilder: (_, __, ___) => _buildPlaceholder(isLoading: false),
+          loadingBuilder: (ctx, child, progress) =>
+              progress == null ? child : _buildPlaceholder(ctx, isLoading: true),
+          errorBuilder: (ctx, __, ___) => _buildPlaceholder(ctx, isLoading: false),
         ),
       );
     }
@@ -86,22 +84,22 @@ class ImagePreview extends ConsumerWidget {
     return Stack(
       alignment: Alignment.center,
       children: [
-        _buildPlaceholder(isLoading: playbackState.isDownloading),
+        _buildPlaceholder(context, isLoading: playbackState.isDownloading),
         if (playbackState.error != null)
           Positioned(
             bottom: 4,
             child: Text(
               playbackState.error!,
-              style: const TextStyle(color: Colors.red, fontSize: 10),
+              style: GoogleFonts.plusJakartaSans(
+                color: PiColors.of(context).error,
+                fontSize: Sz.sp(context, 10),
+              ),
               textAlign: TextAlign.center,
             ),
           ),
         if (!playbackState.isDownloading && !playbackState.isDownloaded)
           GestureDetector(
-            onTap: () {
-              print('====== Download tapped: mediaId=$mediaId metaUrl=${media.metaUrl}');
-              _downloadFromMeta(ref);
-            },
+            onTap: () => _downloadFromMeta(ref),
             child: _downloadOverlay(isLoading: false),
           ),
       ],
@@ -121,19 +119,18 @@ class ImagePreview extends ConsumerWidget {
               height: 24,
               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
             )
-          : const Icon(Icons.download, color: Colors.white, size: 24),
+          : Icon(LucideIcons.download, color: Colors.white, size: 24),
     );
   }
 
-  Widget _buildPlaceholder({required bool isLoading}) {
-    return Container(
-      width: ChatMessageItem.mediaMaxWidth,
-      height: ChatMessageItem.mediaMaxWidth,
-      color: Colors.grey[300],
+  Widget _buildPlaceholder(BuildContext context, {required bool isLoading}) {
+    return SizedBox(
+      width: double.infinity,
+      height: ChatMessageItem.mediaMaxHeight,
       child: Center(
         child: isLoading
             ? const CircularProgressIndicator(strokeWidth: 2)
-            : const Icon(Icons.image_outlined, size: 48, color: Colors.grey),
+            : Icon(LucideIcons.image, size: 48, color: PiColors.of(context).ink400),
       ),
     );
   }
@@ -143,16 +140,6 @@ class ImagePreview extends ConsumerWidget {
     await ref
         .read(mediaPlaybackProvider(mediaId).notifier)
         .downloadMedia(contactId, media.type ?? 'image/jpeg', metaUrl: media.metaUrl, metaId: metaId);
-  }
-
-  /// Cache to local storage from our server path
-  Future<void> _cacheFromServer(WidgetRef ref) async {
-    final storage = ref.read(mediaStorageServiceProvider);
-    if (media.path == null) return;
-    try {
-      final localPath = await storage.downloadMedia(mediaId, media.path!);
-      ref.read(mediaPlaybackProvider(mediaId).notifier).setDownloaded(localPath);
-    } catch (_) {}
   }
 
   void _showFullScreenImage(BuildContext context, String? resolvedLocal) {
@@ -170,7 +157,7 @@ class ImagePreview extends ConsumerWidget {
                   ? Image.file(File(resolvedLocal), fit: BoxFit.contain)
                   : media.path != null
                       ? Image.network(media.path!, fit: BoxFit.contain)
-                      : _buildPlaceholder(isLoading: false),
+                      : _buildPlaceholder(context, isLoading: false),
             ),
           ),
         ),

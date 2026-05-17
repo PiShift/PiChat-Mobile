@@ -3,6 +3,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/router/app_router.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/repositories/settings_repository.dart';
 import 'package:pichat/features/auth/application/auth_controller.dart';
@@ -25,12 +26,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final size = MediaQuery.sizeOf(context);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: PiColors.of(context).background,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: PiColors.of(context).background,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
-        title: Text('settings.title'.tr(), style: TextStyle(fontSize: size.width * 0.045, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+        title: Text('settings.title'.tr(), style: TextStyle(fontSize: size.width * 0.045, fontWeight: FontWeight.bold, color: PiColors.of(context).textPrimary)),
       ),
       body: ListView(
         children: [
@@ -41,7 +42,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             data: (profile) => _buildProfileSection(profile),
           ),
 
-          Divider(height: 1, color: Colors.grey[200]),
+          Divider(height: 1, color: PiColors.of(context).divider),
 
           // Settings sections
           settingsAsync.when(
@@ -69,7 +70,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ],
                 ),
 
-                Divider(height: 1, color: Colors.grey[200]),
+                Divider(height: 1, color: PiColors.of(context).divider),
 
                 // Chat settings
                 _buildSection(
@@ -85,7 +86,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ],
                 ),
 
-                Divider(height: 1, color: Colors.grey[200]),
+                Divider(height: 1, color: PiColors.of(context).divider),
 
                 // Appearance
                 _buildSection(
@@ -105,7 +106,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ],
                 ),
 
-                Divider(height: 1, color: Colors.grey[200]),
+                Divider(height: 1, color: PiColors.of(context).divider),
 
                 // Account
                 _buildSection(
@@ -129,10 +130,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               width: double.infinity,
               child: TextButton(
                 style: TextButton.styleFrom(
-                  foregroundColor: Colors.red[400],
+                  foregroundColor: PiColors.of(context).error,
                   padding: EdgeInsets.symmetric(vertical: size.height * 0.014),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  backgroundColor: Colors.red.shade50,
+                  backgroundColor: PiColors.of(context).error.withOpacity(0.1),
                 ),
                 onPressed: _isLoggingOut ? null : () => _logout(router),
                 child: _isLoggingOut
@@ -153,7 +154,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Padding(
             padding: EdgeInsets.only(bottom: size.height * 0.04),
             child: Center(
-              child: Text('settings.version'.tr(namedArgs: {'version': '1.0.0'}), style: TextStyle(color: Colors.grey[400], fontSize: size.width * 0.028)),
+              child: Text('settings.version'.tr(namedArgs: {'version': '1.0.0'}), style: TextStyle(color: PiColors.of(context).ink400, fontSize: size.width * 0.028)),
             ),
           ),
         ],
@@ -170,12 +171,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           CircleAvatar(
             radius: avatarRadius,
-            backgroundColor: Colors.grey[100],
+            backgroundColor: PiColors.of(context).surface,
             backgroundImage: profile.avatar != null ? NetworkImage(profile.avatar!) : null,
             child: profile.avatar == null
                 ? Text(
                     _getInitials(profile.fullName),
-                    style: TextStyle(fontSize: avatarRadius * 0.7, fontWeight: FontWeight.w600, color: AppColors.primary),
+                    style: TextStyle(fontSize: avatarRadius * 0.7, fontWeight: FontWeight.w600, color: PiPalette.primary500),
                   )
                 : null,
           ),
@@ -184,19 +185,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(profile.fullName, style: TextStyle(fontSize: size.width * 0.038, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+                Text(profile.fullName, style: TextStyle(fontSize: size.width * 0.038, fontWeight: FontWeight.w600, color: PiColors.of(context).textPrimary)),
                 SizedBox(height: size.height * 0.003),
-                Text(profile.email, style: TextStyle(fontSize: size.width * 0.031, color: Colors.grey[500])),
+                Text(profile.email, style: TextStyle(fontSize: size.width * 0.031, color: PiColors.of(context).textSecondary)),
                 SizedBox(height: size.height * 0.004),
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: size.width * 0.018, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: PiColors.of(context).surface,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     profile.role.toUpperCase(),
-                    style: TextStyle(fontSize: size.width * 0.024, color: Colors.grey[600], fontWeight: FontWeight.w600, letterSpacing: 0.5),
+                    style: TextStyle(fontSize: size.width * 0.024, color: PiColors.of(context).textSecondary, fontWeight: FontWeight.w600, letterSpacing: 0.5),
                   ),
                 ),
               ],
@@ -214,15 +215,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       padding: EdgeInsets.symmetric(horizontal: size.width * 0.04, vertical: size.height * 0.016),
       child: Row(
         children: [
-          Container(width: avatarSize, height: avatarSize, decoration: BoxDecoration(color: Colors.grey[200], shape: BoxShape.circle)),
+          Container(width: avatarSize, height: avatarSize, decoration: BoxDecoration(color: PiColors.of(context).surface, shape: BoxShape.circle)),
           SizedBox(width: size.width * 0.04),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(width: size.width * 0.3, height: size.width * 0.034, color: Colors.grey[200]),
+                Container(width: size.width * 0.3, height: size.width * 0.034, color: PiColors.of(context).surface),
                 SizedBox(height: size.height * 0.006),
-                Container(width: size.width * 0.45, height: size.width * 0.028, color: Colors.grey[200]),
+                Container(width: size.width * 0.45, height: size.width * 0.028, color: PiColors.of(context).surface),
               ],
             ),
           ),
@@ -240,11 +241,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           Container(
             width: avatarSize, height: avatarSize,
-            decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
-            child: Icon(Icons.error_outline, color: Colors.grey[400], size: size.width * 0.06),
+            decoration: BoxDecoration(color: PiColors.of(context).surface, shape: BoxShape.circle),
+            child: Icon(Icons.error_outline, color: PiColors.of(context).ink400, size: size.width * 0.06),
           ),
           SizedBox(width: size.width * 0.04),
-          Text('settings.error.load_profile'.tr(), style: TextStyle(fontSize: size.width * 0.032, color: Colors.grey[500])),
+          Text('settings.error.load_profile'.tr(), style: TextStyle(fontSize: size.width * 0.032, color: PiColors.of(context).textSecondary)),
         ],
       ),
     );
@@ -259,9 +260,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           padding: EdgeInsets.fromLTRB(size.width * 0.04, size.height * 0.014, size.width * 0.04, size.height * 0.004),
           child: Row(
             children: [
-              Icon(icon, size: size.width * 0.038, color: Colors.grey[500]),
+              Icon(icon, size: size.width * 0.038, color: PiColors.of(context).textSecondary),
               SizedBox(width: size.width * 0.02),
-              Text(title, style: TextStyle(fontSize: size.width * 0.03, fontWeight: FontWeight.w600, color: Colors.grey[500], letterSpacing: 0.3)),
+              Text(title, style: TextStyle(fontSize: size.width * 0.03, fontWeight: FontWeight.w600, color: PiColors.of(context).textSecondary, letterSpacing: 0.3)),
             ],
           ),
         ),
@@ -273,11 +274,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _buildSwitchTile({required String title, String? subtitle, required bool value, required ValueChanged<bool> onChanged}) {
     final size = MediaQuery.sizeOf(context);
     return SwitchListTile(
-      title: Text(title, style: TextStyle(fontSize: size.width * 0.034, color: AppColors.textDark)),
-      subtitle: subtitle != null ? Text(subtitle, style: TextStyle(color: Colors.grey[500], fontSize: size.width * 0.028)) : null,
+      title: Text(title, style: TextStyle(fontSize: size.width * 0.034, color: PiColors.of(context).textPrimary)),
+      subtitle: subtitle != null ? Text(subtitle, style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: size.width * 0.028)) : null,
       value: value,
       onChanged: onChanged,
-      activeThumbColor: AppColors.primary,
+      activeThumbColor: PiPalette.primary500,
       dense: true,
       contentPadding: EdgeInsets.symmetric(horizontal: size.width * 0.04),
     );
@@ -286,9 +287,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _buildOptionTile({required String title, String? subtitle, required VoidCallback onTap}) {
     final size = MediaQuery.sizeOf(context);
     return ListTile(
-      title: Text(title, style: TextStyle(fontSize: size.width * 0.034, color: AppColors.textDark)),
-      subtitle: subtitle != null ? Text(subtitle, style: TextStyle(color: Colors.grey[500], fontSize: size.width * 0.028)) : null,
-      trailing: Icon(Icons.chevron_right, size: size.width * 0.045, color: Colors.grey[400]),
+      title: Text(title, style: TextStyle(fontSize: size.width * 0.034, color: PiColors.of(context).textPrimary)),
+      subtitle: subtitle != null ? Text(subtitle, style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: size.width * 0.028)) : null,
+      trailing: Icon(Icons.chevron_right, size: size.width * 0.045, color: PiColors.of(context).ink400),
       dense: true,
       contentPadding: EdgeInsets.symmetric(horizontal: size.width * 0.04),
       onTap: onTap,
@@ -318,7 +319,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ref.invalidate(appSettingsProvider);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('settings.snackbar.failed_to_update'.tr(namedArgs: {'error': e.toString()})), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('settings.snackbar.failed_to_update'.tr(namedArgs: {'error': e.toString()})), backgroundColor: PiPalette.error500));
       }
     }
   }
@@ -333,7 +334,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             for (final theme in ['light', 'dark', 'system'])
               ListTile(
                 title: Text(theme.capitalize()),
-                trailing: current == theme ? const Icon(Icons.check, color: AppColors.primary) : null,
+                trailing: current == theme ? const Icon(Icons.check, color: PiPalette.primary500) : null,
                 onTap: () {
                   Navigator.pop(ctx);
                   _updateSetting('theme', theme);
@@ -355,7 +356,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             for (final lang in [('en', 'English'), ('fr', 'Français'), ('ar', 'العربية')])
               ListTile(
                 title: Text(lang.$2),
-                trailing: current == lang.$1 ? const Icon(Icons.check, color: AppColors.primary) : null,
+                trailing: current == lang.$1 ? const Icon(Icons.check, color: PiPalette.primary500) : null,
                 onTap: () async {
                   Navigator.pop(ctx);
                   await _updateSetting('language', lang.$1);
@@ -404,11 +405,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 );
                 if (mounted) {
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('settings.snackbar.password_changed'.tr()), backgroundColor: Colors.green));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('settings.snackbar.password_changed'.tr()), backgroundColor: PiPalette.success500));
                 }
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('settings.snackbar.failed_to_update'.tr(namedArgs: {'error': e.toString()})), backgroundColor: Colors.red));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('settings.snackbar.failed_to_update'.tr(namedArgs: {'error': e.toString()})), backgroundColor: PiPalette.error500));
                 }
               }
             },
@@ -426,7 +427,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       router.go('/login');
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('settings.snackbar.logout_failed'.tr(namedArgs: {'error': e.toString()})), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('settings.snackbar.logout_failed'.tr(namedArgs: {'error': e.toString()})), backgroundColor: PiPalette.error500));
       }
     } finally {
       if (mounted) setState(() => _isLoggingOut = false);

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pichat/core/state/auth_state.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -50,7 +51,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       }
     });
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: PiColors.of(context).background,
       body: Center(
         child: FadeTransition(
           opacity: _fadeIn,

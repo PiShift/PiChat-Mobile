@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/repositories/canned_reply_repository.dart';
 
@@ -48,9 +49,9 @@ class _QuickReplyPickerState extends ConsumerState<QuickReplyPicker> {
         : ref.watch(filteredCannedRepliesProvider(_searchQuery));
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: PiColors.of(context).surfaceRaised,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -61,7 +62,7 @@ class _QuickReplyPickerState extends ConsumerState<QuickReplyPicker> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey[300],
+              color: PiColors.of(context).divider,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -108,7 +109,7 @@ class _QuickReplyPickerState extends ConsumerState<QuickReplyPicker> {
                           )
                         : null,
                     filled: true,
-                    fillColor: Colors.grey[100],
+                    fillColor: PiColors.of(context).surface,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -142,7 +143,7 @@ class _QuickReplyPickerState extends ConsumerState<QuickReplyPicker> {
                     const SizedBox(height: 12),
                     Text(
                       'quick_replies.error.load_failed'.tr(),
-                      style: TextStyle(color: Colors.grey[600]),
+                    style: TextStyle(color: PiColors.of(context).textSecondary),
                     ),
                     const SizedBox(height: 12),
                     ElevatedButton(
@@ -159,13 +160,13 @@ class _QuickReplyPickerState extends ConsumerState<QuickReplyPicker> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.message_outlined, color: Colors.grey[400], size: 48),
+                        Icon(Icons.message_outlined, color: PiColors.of(context).ink400, size: 48),
                         const SizedBox(height: 12),
                         Text(
                           _searchQuery.isEmpty
                               ? 'quick_replies.empty.no_replies'.tr()
                               : 'quick_replies.empty.no_matches'.tr(),
-                          style: TextStyle(color: Colors.grey[600]),
+                          style: TextStyle(color: PiColors.of(context).textSecondary),
                         ),
                       ],
                     ),
@@ -195,17 +196,17 @@ class _QuickReplyPickerState extends ConsumerState<QuickReplyPicker> {
           // Tip at bottom
           Container(
             padding: const EdgeInsets.all(12),
-            color: Colors.grey[50],
+            color: PiColors.of(context).surface,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.info_outline, size: 14, color: Colors.grey[500]),
+                Icon(Icons.info_outline, size: 14, color: PiColors.of(context).textSecondary),
                 const SizedBox(width: 8),
                 Text(
                   'quick_replies.tip'.tr(),
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey[500],
+                    color: PiColors.of(context).textSecondary,
                   ),
                 ),
               ],
@@ -278,11 +279,11 @@ class _QuickReplyTile extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: Colors.grey[600],
+          color: PiColors.of(context).textSecondary,
           fontSize: 13,
         ),
       ),
-      trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+      trailing: Icon(Icons.arrow_forward_ios, size: 14, color: PiColors.of(context).ink400),
     );
   }
 
@@ -345,7 +346,7 @@ class QuickReplySuggestions extends ConsumerWidget {
         return Container(
           margin: const EdgeInsets.only(bottom: 4),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: PiColors.of(context).surfaceRaised,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
@@ -387,7 +388,7 @@ class QuickReplySuggestions extends ConsumerWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.grey[700],
+                          color: PiColors.of(context).textSecondary,
                           fontSize: 13,
                         ),
                       ),

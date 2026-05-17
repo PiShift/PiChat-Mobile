@@ -7,6 +7,9 @@ import 'package:pichat/features/auth/presentation/login_screen.dart';
 import 'package:pichat/features/auth/presentation/tfa_screen.dart';
 import 'package:pichat/features/campaigns/presentation/campaigns_screen.dart';
 import 'package:pichat/features/calls/presentation/call_history_screen.dart';
+import 'package:pichat/features/groups/presentation/group_detail_screen.dart';
+import 'package:pichat/features/groups/presentation/groups_screen.dart';
+import 'package:pichat/data/models/group_model.dart';
 import 'package:pichat/features/calls/presentation/in_call_screen.dart';
 import 'package:pichat/features/calls/presentation/outbound_call_screen.dart';
 import 'package:pichat/features/chat/presentation/chat_screen.dart';
@@ -107,6 +110,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/home/calls',
             builder: (context, state) => const CallHistoryScreen(),
+          ),
+          GoRoute(
+            path: '/home/groups',
+            builder: (context, state) => const GroupsScreen(),
+          ),
+          GoRoute(
+            path: '/home/groups/detail',
+            builder: (context, state) {
+              final group = state.extra as WhatsappGroup;
+              return GroupDetailScreen(group: group);
+            },
           ),
         ],
       ),

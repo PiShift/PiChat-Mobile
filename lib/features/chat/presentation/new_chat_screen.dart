@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/data/repositories/contact_repository.dart';
@@ -148,7 +149,7 @@ class _NewChatScreenState extends ConsumerState<NewChatScreen> {
                 borderSide: BorderSide.none,
               ),
               filled: true,
-              fillColor: Colors.grey[100],
+              fillColor: PiColors.of(context).surface,
             ),
             onChanged: _runSearch,
           ),
@@ -159,11 +160,11 @@ class _NewChatScreenState extends ConsumerState<NewChatScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.person_search, size: 64, color: Colors.grey[300]),
+                  Icon(Icons.person_search, size: 64, color: PiColors.of(context).ink400),
                   const SizedBox(height: 12),
                   Text(
                     'new_chat.empty.no_contacts'.tr(),
-                    style: TextStyle(color: Colors.grey[500], fontSize: 16),
+                    style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
                   TextButton.icon(
@@ -220,7 +221,7 @@ class _NewChatScreenState extends ConsumerState<NewChatScreen> {
           const SizedBox(height: 8),
           Text(
             'new_chat.form.subtitle'.tr(),
-            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 14),
           ),
           const SizedBox(height: 24),
 

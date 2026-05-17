@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as fc;
+import 'package:pichat/core/theme/app_colors.dart';
 
 /// A single contact card the user picked to share. Includes name + the
 /// phone numbers selected (Meta accepts multiple `phones[]` per card).
@@ -163,9 +164,9 @@ class _ShareContactSheetState extends State<_ShareContactSheet> {
       expand: false,
       builder: (_, scrollController) {
         return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          decoration: BoxDecoration(
+            color: PiColors.of(context).surfaceRaised,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           ),
           child: Column(
             children: [
@@ -174,7 +175,7 @@ class _ShareContactSheetState extends State<_ShareContactSheet> {
                 height: 4,
                 margin: const EdgeInsets.only(top: 10, bottom: 8),
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: PiColors.of(context).divider,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),

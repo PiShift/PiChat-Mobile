@@ -6,6 +6,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pichat/core/theme/app_colors.dart';
 
 import '../data/call_api.dart';
 import '../data/call_models.dart';
@@ -34,9 +35,9 @@ class CallHistoryScreen extends ConsumerWidget {
           ]),
           data: (calls) {
             if (calls.isEmpty) {
-              return ListView(children: const [
-                SizedBox(height: 120),
-                Center(child: Text('No calls yet.', style: TextStyle(color: Colors.grey))),
+              return ListView(children: [
+                const SizedBox(height: 120),
+                Center(child: Text('No calls yet.', style: TextStyle(color: PiColors.of(context).textSecondary))),
               ]);
             }
             return ListView.separated(
@@ -77,7 +78,7 @@ class _CallTile extends StatelessWidget {
       subtitle: Text(_subtitle(call)),
       trailing: Text(
         call.createdAt != null ? DateFormat('MMM d, HH:mm').format(call.createdAt!) : '',
-        style: const TextStyle(fontSize: 12, color: Colors.grey),
+        style: TextStyle(fontSize: 12, color: PiColors.of(context).textSecondary),
       ),
     );
   }

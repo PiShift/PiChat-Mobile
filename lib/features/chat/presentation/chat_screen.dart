@@ -3,19 +3,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pichat/core/theme/app_theme.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:pichat/core/theme/app_colors.dart';
+import 'package:pichat/core/theme/app_sizing.dart';
+import 'package:pichat/core/theme/app_spacing.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/features/chat/application/main_controller.dart';
 import 'package:pichat/features/chat/widgets/contactItem.dart';
+import 'package:pichat/shared/widgets/pi_badge.dart';
+import 'package:pichat/shared/widgets/pi_input.dart';
 
 /// Search query provider for filtering contacts
-final searchQueryProvider = StateProvider<String>((ref) => '');
+final searchQueryProvider = StateProvider.autoDispose<String>((ref) => '');
 
 /// Active filter provider
-final activeFilterProvider = StateProvider<String?>((ref) => null);
+final activeFilterProvider = StateProvider.autoDispose<String?>((ref) => null);
 
 /// Filtered contacts provider - combines search + filter
-final filteredContactsProvider = Provider<List<Contact>>((ref) {
+final filteredContactsProvider = Provider.autoDispose<List<Contact>>((ref) {
   final contacts = ref.watch(mainDataProvider);
   final query = ref.watch(searchQueryProvider).toLowerCase();
   final filter = ref.watch(activeFilterProvider);
@@ -99,236 +105,260 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     final activeFilter = ref.watch(activeFilterProvider);
     final isLoading = allContacts.isEmpty;
     final unreadCount = allContacts.fold<int>(0, (sum, c) => sum + c.unreadCount);
-    final size = MediaQuery.sizeOf(context);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: _buildAppBar(context),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      backgroundColor: PiColors.of(context).background,
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        behavior: HitTestBehavior.translucent,
+        child: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header ──────────────────────────────────────────────────────
+            _buildHeader(context),
+            const SizedBox(height: PiSpacing.space8),
+
+            // ── Search ───────────────────────────────────────────────────────
+            PiSearchInput(
+              controller: _searchController,
+              hint: 'new_chat.search.hint'.tr(),
+              onChanged: (v) => ref.read(searchQueryProvider.notifier).state = v,
+              onClear: () => ref.read(searchQueryProvider.notifier).state = '',
+            ),
+            const SizedBox(height: PiSpacing.space8),
+
+            // ── Filter chips ─────────────────────────────────────────────────
+            _buildFilterRow(context, activeFilter, unreadCount),
+            const SizedBox(height: PiSpacing.space8),
+
+            // ── Contact list ─────────────────────────────────────────────────
+            Expanded(
+              child: isLoading
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        color: PiPalette.primary500,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : contacts.isEmpty
+                      ? _buildEmptyState(context)
+                      : RefreshIndicator(
+                          color: PiPalette.primary500,
+                          onRefresh: () async {
+                            await ref.read(mainDataProvider.notifier).refreshContacts();
+                          },
+                          child: ListView.builder(
+                            itemCount: contacts.length,
+                            itemBuilder: (context, index) {
+                              final contact = contacts[index];
+                              return GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => context.push('/home/chats/detail', extra: contact),
+                                child: ContactItem(contact: contact),
+                              );
+                            },
+                          ),
+                        ),
+            ),
+          ],
+        ),
+      ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        PiSpacing.space16,
+        PiSpacing.space12,
+        PiSpacing.space4,
+        0,
+      ),
+      child: Row(
         children: [
-          // Title
-          Padding(
-            padding: EdgeInsets.fromLTRB(size.width * 0.04, 10, size.width * 0.04, 4),
+          Expanded(
             child: Text(
               'home.nav.chats'.tr(),
-              style: TextStyle(
-                fontSize: size.width * 0.052,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textDark,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: Sz.sp(context, 20),
+                fontWeight: FontWeight.w700,
+                color: PiColors.of(context).textPrimary,
+                height: 26 / 20,
               ),
             ),
           ),
-
-          // Search bar
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: size.width * 0.04),
-            child: SizedBox(
-              height: 36,
-              child: TextField(
-                controller: _searchController,
-                onChanged: (v) => ref.read(searchQueryProvider.notifier).state = v,
-                style: TextStyle(fontSize: size.width * 0.034),
-                decoration: InputDecoration(
-                  hintText: 'new_chat.search.hint'.tr(),
-                  hintStyle: TextStyle(fontSize: size.width * 0.032, color: Colors.grey[500]),
-                  prefixIcon: Icon(Icons.search, size: size.width * 0.043, color: Colors.grey[500]),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? GestureDetector(
-                          onTap: () {
-                            _searchController.clear();
-                            ref.read(searchQueryProvider.notifier).state = '';
-                          },
-                          child: Icon(Icons.close, size: size.width * 0.038, color: Colors.grey[500]),
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: AppColors.surface,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: AppColors.primary.withOpacity(0.4), width: 1),
-                  ),
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
+          // New chat
+          _HeaderIconButton(
+            icon: LucideIcons.squarePen,
+            tooltip: 'New Chat',
+            onTap: () => context.push('/home/chats/new'),
+          ),
+          // More options
+          PopupMenuButton<String>(
+            tooltip: 'More options',
+            offset: const Offset(0, 40),
+            onSelected: (value) async {
+              if (value == 'mark_all_read') {
+                await ref.read(mainDataProvider.notifier).markAllAsRead();
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'mark_all_read',
+                child: Row(
+                  children: [
+                    const Icon(LucideIcons.checkCheck, size: 16, color: PiPalette.ink600),
+                    const SizedBox(width: PiSpacing.space8),
+                    Text(
+                      'Mark All as Read',
+                      style: GoogleFonts.plusJakartaSans(fontSize: 14),
+                    ),
+                  ],
                 ),
               ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Icon(
+                LucideIcons.ellipsisVertical,
+                size: Sz.sp(context, 22),
+                color: PiColors.of(context).textPrimary,
+              ),
             ),
-          ),
-
-          SizedBox(height: size.height * 0.008),
-
-          // Filter chips
-          SizedBox(
-            height: 30,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.symmetric(horizontal: size.width * 0.04),
-              children: [
-                _FilterChip(label: 'All', value: null, active: activeFilter),
-                SizedBox(width: size.width * 0.02),
-                _FilterChip(
-                  label: unreadCount > 0 ? 'Unread ($unreadCount)' : 'Unread',
-                  value: 'unread',
-                  active: activeFilter,
-                ),
-                SizedBox(width: size.width * 0.02),
-                _FilterChip(label: 'Open', value: 'open', active: activeFilter),
-                SizedBox(width: size.width * 0.02),
-                _FilterChip(label: 'Pending', value: 'pending', active: activeFilter),
-                SizedBox(width: size.width * 0.02),
-                _FilterChip(label: 'Closed', value: 'closed', active: activeFilter),
-              ],
-            ),
-          ),
-
-          SizedBox(height: size.height * 0.006),
-
-          // Contact list
-          Expanded(
-            child: isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : contacts.isEmpty
-                    ? _buildEmptyState()
-                    : RefreshIndicator(
-                        onRefresh: () async {
-                          await ref.read(mainDataProvider.notifier).refreshContacts();
-                        },
-                        child: ListView.builder(
-                          itemCount: contacts.length,
-                          itemBuilder: (context, index) {
-                            final contact = contacts[index];
-                            return InkWell(
-                              onTap: () => context.push('/home/chats/detail', extra: contact),
-                              child: ContactItem(contact: contact),
-                            );
-                          },
-                        ),
-                      ),
           ),
         ],
       ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-
-    return AppBar(
-      backgroundColor: AppColors.background,
-      elevation: 0,
-      surfaceTintColor: Colors.transparent,
-      titleSpacing: 0,
-      leading: PopupMenuButton<String>(
-        icon: Icon(Icons.more_vert, size: size.width * 0.052, color: AppColors.textDark),
-        onSelected: (value) async {
-          if (value == 'mark_all_read') {
-            await ref.read(mainDataProvider.notifier).markAllAsRead();
-          }
-        },
-        itemBuilder: (_) => [
-          PopupMenuItem(
-            value: 'mark_all_read',
-            child: Row(
-              children: [
-                Icon(Icons.done_all, size: size.width * 0.043, color: AppColors.textDark),
-                SizedBox(width: size.width * 0.03),
-                Text('Mark All as Read', style: TextStyle(fontSize: size.width * 0.034)),
-              ],
-            ),
+  Widget _buildFilterRow(BuildContext context, String? activeFilter, int unreadCount) {
+    return SizedBox(
+      height: 32,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: PiSpacing.space16),
+        children: [
+          PiFilterChip(
+            label: 'All',
+            isActive: activeFilter == null,
+            onTap: () => ref.read(activeFilterProvider.notifier).state = null,
+          ),
+          const SizedBox(width: PiSpacing.space8),
+          PiFilterChip(
+            label: unreadCount > 0 ? 'Unread ($unreadCount)' : 'Unread',
+            isActive: activeFilter == 'unread',
+            onTap: () => ref.read(activeFilterProvider.notifier).state = 'unread',
+          ),
+          const SizedBox(width: PiSpacing.space8),
+          PiFilterChip(
+            label: 'Open',
+            isActive: activeFilter == 'open',
+            onTap: () => ref.read(activeFilterProvider.notifier).state = 'open',
+          ),
+          const SizedBox(width: PiSpacing.space8),
+          PiFilterChip(
+            label: 'Pending',
+            isActive: activeFilter == 'pending',
+            onTap: () => ref.read(activeFilterProvider.notifier).state = 'pending',
+          ),
+          const SizedBox(width: PiSpacing.space8),
+          PiFilterChip(
+            label: 'Closed',
+            isActive: activeFilter == 'closed',
+            onTap: () => ref.read(activeFilterProvider.notifier).state = 'closed',
           ),
         ],
       ),
-      actions: [
-        // New chat button
-        IconButton(
-          icon: Icon(Icons.edit_outlined, size: size.width * 0.052, color: AppColors.textDark),
-          tooltip: 'New Chat',
-          onPressed: () => context.push('/home/chats/new'),
-          padding: EdgeInsets.zero,
-        ),
-        SizedBox(width: size.width * 0.015),
-      ],
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(BuildContext context) {
     final query = ref.watch(searchQueryProvider);
     final filter = ref.watch(activeFilterProvider);
+
     if (query.isNotEmpty || filter != null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.search_off, size: 38, color: Colors.grey[400]),
-            const SizedBox(height: 8),
-            Text('No matching chats', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-            const SizedBox(height: 4),
-            TextButton.icon(
-              onPressed: () {
+            Icon(LucideIcons.search, size: 40, color: PiPalette.ink300),
+            const SizedBox(height: PiSpacing.space8),
+            Text(
+              'No matching chats',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 14,
+                color: PiColors.of(context).textSecondary,
+              ),
+            ),
+            const SizedBox(height: PiSpacing.space4),
+            GestureDetector(
+              onTap: () {
                 _searchController.clear();
                 ref.read(searchQueryProvider.notifier).state = '';
                 ref.read(activeFilterProvider.notifier).state = null;
               },
-              icon: const Icon(Icons.clear_all, size: 15),
-              label: const Text('Clear filters', style: TextStyle(fontSize: 13)),
+              child: Text(
+                'Clear filters',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13,
+                  color: PiPalette.primary500,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ],
         ),
       );
     }
+
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.chat_bubble_outline, size: 38, color: Colors.grey[400]),
-          const SizedBox(height: 8),
-          Text('No conversations yet', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+          Icon(LucideIcons.messageCircle, size: 40, color: PiPalette.ink300),
+          const SizedBox(height: PiSpacing.space8),
+          Text(
+            'No conversations yet',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 14,
+              color: PiColors.of(context).textSecondary,
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _FilterChip extends ConsumerWidget {
-  final String label;
-  final String? value;
-  final String? active;
+// ─── Header icon button ───────────────────────────────────────────────────────
 
-  const _FilterChip({required this.label, required this.value, required this.active});
+class _HeaderIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _HeaderIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isSelected = active == value;
-    final size = MediaQuery.sizeOf(context);
-
-    return GestureDetector(
-      onTap: () => ref.read(activeFilterProvider.notifier).state = value,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: EdgeInsets.symmetric(horizontal: size.width * 0.028),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.greyBorder,
-            width: 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: size.width * 0.029,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            color: isSelected ? Colors.white : AppColors.textDark,
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Icon(
+            icon,
+            size: Sz.sp(context, 22),
+            color: PiColors.of(context).textPrimary,
           ),
         ),
       ),

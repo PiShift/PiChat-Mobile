@@ -49,6 +49,7 @@ class ChatRepository {
   Future<List<Chat>> getMessages(
       int contactId, {
         int? afterId,
+        int? beforeId,
         int page = 1,
         int perPage = 20,
         bool forceRefresh = false,
@@ -71,6 +72,7 @@ class ChatRepository {
       'page': page,
       'per_page': perPage,
       if (afterId != null) 'after_id': afterId,
+      if (beforeId != null) 'before_id': beforeId,
     };
 
     final response = await _dio.get('/contacts/$contactId/messages', queryParameters: query);
