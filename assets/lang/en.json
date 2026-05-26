@@ -142,7 +142,9 @@
       "push_title": "Push Notifications",
       "push_subtitle": "Receive notifications for new messages",
       "sound_title": "Sound",
-      "sound_subtitle": "Play sound for notifications"
+      "sound_subtitle": "Play sound for notifications",
+      "change_sound_title": "Notification Sound",
+      "change_sound_subtitle": "Choose the sound for new message notifications"
     },
     "chat": {
       "enter_to_send_title": "Enter to Send",

@@ -1,8 +1,12 @@
 import 'dart:io';
+import 'package:audio_session/audio_session.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:pichat/core/services/notification_sound_service.dart';
 import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/features/calls/application/call_fcm_handler.dart';
 
@@ -14,11 +18,15 @@ class NotificationService {
 
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
-  
+  static const _ringtoneChannel = MethodChannel('com.pishift.pichat/ringtone');
+  final AudioPlayer _soundPlayer = AudioPlayer();
+
   bool _isInitialized = false;
   Future<void>? _initFuture;
   String? _fcmToken;
+  String? _currentSoundUri;
   ProviderContainer? _container;
+  Dio? _dio;
 
   /// Get the current FCM token
   String? get fcmToken => _fcmToken;
@@ -80,10 +88,15 @@ class NotificationService {
       print('NotificationService: Could not obtain FCM token (APNS token unavailable)');
     }
 
-    // Listen for token refresh
+    // Listen for token refresh — re-register with backend so production App Store
+    // installs (where the APNs token may arrive after the initial registration
+    // attempt) always have a valid token stored server-side.
     _messaging.onTokenRefresh.listen((newToken) {
-      print('NotificationService: Token refreshed');
+      print('NotificationService: Token refreshed, re-registering with backend');
       _fcmToken = newToken;
+      if (_dio != null) {
+        registerTokenWithBackend(_dio!);
+      }
     });
 
     // Handle foreground messages
@@ -152,12 +165,16 @@ class NotificationService {
 
     // Create notification channel for Android
     if (Platform.isAndroid) {
+      // pichat_messages is the canonical channel. Using a versioned ID forces
+      // Android to create a fresh channel even if the old one was registered
+      // without proper sound settings on an earlier install.
       const channel = AndroidNotificationChannel(
-        'high_importance_channel',
+        'pichat_messages',
         'New Messages',
         description: 'Notifications for new WhatsApp messages',
         importance: Importance.high,
         playSound: true,
+        enableVibration: true,
       );
 
       await _localNotifications
@@ -168,6 +185,7 @@ class NotificationService {
 
   /// Register FCM token with backend (call after user logs in)
   Future<void> registerTokenWithBackend(Dio dio) async {
+    _dio = dio;
     if (_fcmToken == null) {
       print('NotificationService: No FCM token to register');
       return;
@@ -196,16 +214,11 @@ class NotificationService {
       return;
     }
 
-    // new_message pushes: the server sends data-only (no notification block),
-    // so iOS/Android never auto-display anything. We decide here based on state:
-    //   • Contacts list (activeContactId == null)  → no banner, list updates live via Reverb.
-    //   • Same chat open                           → silent, message appears live via Reverb.
-    //   • Different chat open                      → in-app banner via inAppNotificationProvider.
-    // ReverbService already handles the in-app banner on the socket path, so FCM
-    // is just a wake-up fallback — we suppress the local notification entirely in
-    // foreground and let Reverb do the UI work.
+    // new_message pushes: Reverb handles the live UI update. We only need to
+    // play the notification sound so the user hears the alert while the app
+    // is open — no banner is shown (that would duplicate Reverb's in-app banner).
     if (message.data['type'] == 'new_message') {
-      // Foreground: fully handled by ReverbService. Do nothing.
+      await _playForegroundSound();
       return;
     }
 
@@ -213,26 +226,69 @@ class NotificationService {
     final notification = message.notification;
     if (notification == null) return;
 
+    // On iOS, use the sound file the user selected in Settings.
+    final soundService = NotificationSoundService();
+    final selectedId = await soundService.getSelectedId();
+    final selectedSound = soundService.findById(selectedId);
+
     await _localNotifications.show(
       id: message.hashCode,
       title: notification.title ?? 'New Message',
       body: notification.body ?? '',
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'high_importance_channel',
+      notificationDetails: NotificationDetails(
+        android: const AndroidNotificationDetails(
+          'pichat_messages',
           'New Messages',
           importance: Importance.high,
           priority: Priority.high,
+          playSound: true,
           icon: '@mipmap/ic_launcher',
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
           presentBadge: true,
           presentSound: true,
+          // null = system default; otherwise the .caf file bundled in ios/Runner/
+          sound: selectedSound.iosSoundFile,
         ),
       ),
       payload: message.data['contact_uuid'],
     );
+  }
+
+  /// Plays the user's chosen notification sound while the app is in the
+  /// foreground (no banner — Reverb already shows the in-app UI).
+  Future<void> _playForegroundSound() async {
+    try {
+      final soundService = NotificationSoundService();
+      final sound = soundService.findById(await soundService.getSelectedId());
+      if (sound.assetPath == null) return; // default → OS handles it; nothing to play here
+
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.ambient,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers,
+        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+        avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.sonification,
+          usage: AndroidAudioUsage.notificationRingtone,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
+      ));
+      try {
+        await session.setActive(true);
+      } catch (_) {
+        // Session activation may fail while VoIP is initialised; continue anyway.
+      }
+
+      await _soundPlayer.stop();
+      await _soundPlayer.setAudioSource(AudioSource.asset(sound.assetPath!));
+      await _soundPlayer.play();
+    } catch (e) {
+      print('NotificationService: foreground sound error: $e');
+    }
   }
 
   void _handleNotificationTap(RemoteMessage message) {
@@ -260,6 +316,15 @@ class NotificationService {
     return value;
   }
 
+  /// Clear all notifications from the notification center and reset the app
+  /// icon badge to zero. Call this whenever the app comes to the foreground.
+  Future<void> clearAll() async {
+    // cancelAll() on iOS: removes pending + delivered notifications from the
+    // notification center AND resets applicationIconBadgeNumber to 0.
+    // On Android: removes all local notifications (launcher badge auto-clears).
+    await _localNotifications.cancelAll();
+  }
+
   /// Unregister device token (call on logout)
   Future<void> unregisterToken(Dio dio) async {
     if (_fcmToken == null) return;
@@ -272,6 +337,40 @@ class NotificationService {
     } catch (e) {
       print('NotificationService: Failed to unregister token: $e');
     }
+  }
+
+  /// Opens the system ringtone picker (Android only). After the user picks a
+  /// sound, the notification channel is deleted and recreated with that URI so
+  /// future notifications play the chosen tone.
+  Future<void> openRingtonePicker() async {
+    if (!Platform.isAndroid) return;
+
+    final String? selectedUri = await _ringtoneChannel.invokeMethod<String>(
+      'openRingtonePicker',
+      {'currentUri': _currentSoundUri},
+    );
+
+    // null means the user cancelled or chose "Silent"
+    if (selectedUri == null) return;
+    _currentSoundUri = selectedUri;
+
+    final androidPlugin = _localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin == null) return;
+
+    // Android locks channel settings after first creation, so delete the old
+    // channel and recreate with the new sound URI.
+    await androidPlugin.deleteNotificationChannel(channelId: 'pichat_messages');
+    final channel = AndroidNotificationChannel(
+      'pichat_messages',
+      'New Messages',
+      description: 'Notifications for new WhatsApp messages',
+      importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+      sound: UriAndroidNotificationSound(selectedUri),
+    );
+    await androidPlugin.createNotificationChannel(channel);
   }
 }
 
@@ -317,10 +416,11 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       body: body.isEmpty ? 'New message' : body,
       notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
-          'high_importance_channel',
+          'pichat_messages',
           'New Messages',
           importance: Importance.high,
           priority: Priority.high,
+          playSound: true,
           icon: '@mipmap/ic_launcher',
         ),
         iOS: DarwinNotificationDetails(

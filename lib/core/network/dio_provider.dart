@@ -56,14 +56,19 @@ final dioProvider = Provider<Dio>((ref) {
     onError: (DioException e, handler) {
       final status = e.response?.statusCode;
       debugPrint('DIO onError: status=$status url=${e.requestOptions.uri}');
-      // Handle 401 - auto logout
-      if (e.response?.statusCode == 401) {
-        debugPrint('DIO: 401 Unauthorized - triggering auto-logout');
-        // Clear all auth state
-        ref.read(authTokenProvider.notifier).state = null;
-        ref.read(organizationProvider.notifier).clear();
-        ref.read(userProvider.notifier).clear();
-        ref.read(authProvider.notifier).logout();
+      // Only auto-logout when the request actually carried an auth token.
+      // Requests that fire before the token is loaded (e.g. settings fetched
+      // during app build) have no Authorization header; treating their 401
+      // as a logout would erase the stored credentials from secure storage.
+      if (status == 401) {
+        final sentAuthHeader = e.requestOptions.headers.containsKey('Authorization');
+        if (sentAuthHeader) {
+          debugPrint('DIO: 401 Unauthorized - triggering auto-logout');
+          ref.read(authTokenProvider.notifier).state = null;
+          ref.read(organizationProvider.notifier).clear();
+          ref.read(userProvider.notifier).clear();
+          ref.read(authProvider.notifier).logout();
+        }
       }
       return handler.next(e);
     },

@@ -5,6 +5,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:go_router/go_router.dart';
@@ -60,6 +61,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   bool _isInitialLoading = true;
   int _lastRenderedCount = 0;
 
+  // Cached notifier so dispose() can safely clear without accessing ref.
+  late StateController<int?> _activeContactNotifier;
+
   // ── Older-message pagination state ───────────────────────────────────
   bool _isLoadingOlder = false;
   bool _hasMoreOlderMessages = true;
@@ -88,10 +92,14 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    // Cache the notifier before any async work so dispose() can access it
+    // safely even after the widget is deactivated (ref is no longer usable).
+    _activeContactNotifier = ref.read(activeContactIdProvider.notifier);
+
     // Tell the rest of the app which contact is currently open so
     // ReverbService can suppress in-app banners for this conversation.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.read(activeContactIdProvider.notifier).state = widget.contact.id;
+      if (mounted) _activeContactNotifier.state = widget.contact.id;
       _fetchNewMessages();
     });
 
@@ -123,7 +131,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   @override
   void dispose() {
     // Clear the active contact so banners resume for future incoming messages.
-    ref.read(activeContactIdProvider.notifier).state = null;
+    // Use the cached notifier — ref is unsafe after the widget is deactivated.
+    _activeContactNotifier.state = null;
     WidgetsBinding.instance.removeObserver(this);
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();

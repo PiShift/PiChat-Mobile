@@ -139,7 +139,9 @@
       "push_title": "الإشعارات الفورية",
       "push_subtitle": "تلقّي إشعارات للرسائل الجديدة",
       "sound_title": "الصوت",
-      "sound_subtitle": "تشغيل صوت عند الإشعارات"
+      "sound_subtitle": "تشغيل صوت عند الإشعارات",
+      "change_sound_title": "صوت الإشعار",
+      "change_sound_subtitle": "اختر صوت إشعارات الرسائل الجديدة"
     },
     "chat": {
       "enter_to_send_title": "Enter للإرسال",

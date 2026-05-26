@@ -1,12 +1,17 @@
 // lib/features/settings/presentation/settings_screen.dart
+import 'dart:io';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pichat/core/network/dio_provider.dart';
 import 'package:pichat/core/router/app_router.dart';
 import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/repositories/settings_repository.dart';
 import 'package:pichat/features/auth/application/auth_controller.dart';
+import 'package:pichat/core/services/notification_service.dart';
+import 'package:pichat/features/settings/presentation/notification_sound_picker_sheet.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -66,6 +71,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       subtitle: 'settings.notifications.sound_subtitle'.tr(),
                       value: settings.soundEnabled,
                       onChanged: (v) => _updateSetting('notification_sound', v),
+                    ),
+                    _buildOptionTile(
+                      title: 'settings.notifications.change_sound_title'.tr(),
+                      subtitle: 'settings.notifications.change_sound_subtitle'.tr(),
+                      onTap: _openNotificationSoundSettings,
                     ),
                   ],
                 ),
@@ -418,6 +428,43 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  /// Opens the in-app notification sound picker.
+  /// On iOS: shows a bottom sheet where the user picks a bundled .caf sound.
+  /// On Android: opens the system ringtone picker to pick any phone sound.
+  Future<void> _openNotificationSoundSettings() async {
+    if (Platform.isAndroid) {
+      await NotificationService().openRingtonePicker();
+    } else {
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (_) => NotificationSoundPickerSheet(
+          onSoundSelected: (sound) => _syncSoundToBackend(sound.iosSoundFile),
+        ),
+      );
+    }
+  }
+
+  /// Persists the chosen sound to the backend so the server can include the
+  /// correct .caf filename in the APNS payload for background notifications.
+  Future<void> _syncSoundToBackend(String? iosSoundFile) async {
+    try {
+      final fcmToken = NotificationService().fcmToken;
+      if (fcmToken == null) return;
+      final dio = ref.read(dioProvider);
+      await dio.put('/notifications/sound', data: {
+        'fcm_token': fcmToken,
+        'notification_sound': iosSoundFile, // null = default
+      });
+    } catch (e) {
+      debugPrint('[Settings] failed to sync sound to backend: $e');
+    }
   }
 
   Future<void> _logout(dynamic router) async {

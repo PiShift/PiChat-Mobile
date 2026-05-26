@@ -1,5 +1,6 @@
 import Flutter
 import AVFAudio
+import AudioToolbox
 import UIKit
 import PushKit
 import CallKit
@@ -12,6 +13,31 @@ import flutter_callkit_incoming
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+
+    // Sound preview channel — plays bundled .caf files via AudioServicesPlaySystemSound,
+    // which completely bypasses AVAudioSession and works even when VoIP holds
+    // the audio hardware exclusively.
+    if let controller = window?.rootViewController as? FlutterViewController {
+      FlutterMethodChannel(
+        name: "com.pishift.pichat/sound_preview",
+        binaryMessenger: controller.binaryMessenger
+      ).setMethodCallHandler { call, result in
+        guard call.method == "playSound",
+              let args = call.arguments as? [String: Any],
+              let filePath = args["filePath"] as? String
+        else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        // Dart writes the Flutter asset to a temp file and passes the
+        // absolute path here, so we never need to search the bundle.
+        let url = URL(fileURLWithPath: filePath)
+        var soundId: SystemSoundID = 0
+        AudioServicesCreateSystemSoundID(url as CFURL, &soundId)
+        AudioServicesPlaySystemSound(soundId)
+        result(nil)
+      }
+    }
 
     // Ask for standard remote-push permission so FCM can wake the app
     // (used for in-call signaling updates and chat notifications).

@@ -9,6 +9,7 @@ import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/core/theme/app_spacing.dart';
 import 'package:pichat/data/models/contact_model.dart';
+import 'package:pichat/core/services/notification_service.dart';
 import 'package:pichat/features/chat/application/main_controller.dart';
 import 'package:pichat/features/chat/widgets/contactItem.dart';
 import 'package:pichat/shared/widgets/pi_badge.dart';
@@ -81,6 +82,10 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Clear stale notifications left from when the app was in the background.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => NotificationService().clearAll(),
+    );
   }
 
   @override
@@ -93,8 +98,10 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Re-sync contacts + latest messages after returning from background
+      // Re-sync contacts + latest messages after returning from background.
       ref.read(mainDataProvider.notifier).refreshContacts();
+      // Clear notification center and reset app icon badge.
+      NotificationService().clearAll();
     }
   }
 

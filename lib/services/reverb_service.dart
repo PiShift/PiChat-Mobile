@@ -343,10 +343,11 @@ class ReverbService {
         body: messageBody,
         notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
-            'high_importance_channel',
+            'pichat_messages',
             'New Messages',
             importance: Importance.high,
             priority: Priority.high,
+            playSound: true,
             icon: '@mipmap/ic_launcher',
           ),
           iOS: DarwinNotificationDetails(
