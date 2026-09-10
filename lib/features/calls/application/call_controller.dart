@@ -21,6 +21,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/state/auth_state.dart';
+import '../../chat/application/main_controller.dart';
 import '../data/call_api.dart';
 import '../data/call_models.dart';
 import 'call_signaling_service.dart';
@@ -224,6 +225,16 @@ class CallController extends StateNotifier<CallState> {
     );
   }
 
+  /// True while this agent is engaged — ringing, negotiating or talking.
+  bool get _isOnCall =>
+      state.call != null &&
+      const {
+        CallPhase.ringing,
+        CallPhase.connecting,
+        CallPhase.inProgress,
+        CallPhase.dialing,
+      }.contains(state.phase);
+
   Future<void> _acceptCurrent({String? sdpOffer}) async {
     final call = state.call;
     if (call == null) return;
@@ -315,6 +326,50 @@ class CallController extends StateNotifier<CallState> {
         'attempting accept anyway');
   }
 
+  /// Take a call from the queue.
+  ///
+  /// Meta's calling API has no hold, and WhatsApp itself does not offer it, so
+  /// answering a second call necessarily ends the first. The UI says "End &
+  /// Accept" rather than plain "Accept" so that is a decision the agent makes
+  /// knowingly instead of discovering afterwards.
+  Future<void> acceptQueued(CallModel queued) async {
+    _ref.read(callQueueProvider.notifier).remove(queued.uuid);
+
+    if (_isOnCall) {
+      await hangup();
+    }
+
+    // A fresh peer connection: the previous call's one has just been torn down
+    // with it, and reusing it would negotiate against a closed transport.
+    await _signaling.dispose();
+
+    _lastIncomingUuid = queued.uuid;
+    _globalIncomingShown.add(queued.uuid);
+
+    state = CallState(phase: CallPhase.ringing, call: queued);
+
+    _navigateToCallScreen();
+
+    await _acceptCurrent(sdpOffer: queued.metadata?['sdp_offer'] as String?);
+  }
+
+  /// Decline a queued call for THIS agent only.
+  ///
+  /// The backend's reject is per-agent: colleagues keep ringing, and the call
+  /// stays claimable by them. That is what makes this usable as a dismiss —
+  /// an agent mid-conversation can clear it off their screen without hanging
+  /// up on the customer.
+  Future<void> declineQueued(CallModel queued) async {
+    _ref.read(callQueueProvider.notifier).remove(queued.uuid);
+
+    try {
+      await _ref.read(callApiProvider).reject(queued.uuid);
+    } catch (e) {
+      // ignore: avoid_print
+      print('[Calling] declining queued call failed: $e');
+    }
+  }
+
   Future<void> _rejectCurrent() async {
     final call = state.call;
     if (call == null) return;
@@ -355,9 +410,45 @@ class CallController extends StateNotifier<CallState> {
         ? CallModel.fromJson(Map<String, dynamic>.from(payload['call'] as Map))
         : null;
 
+    // Keep the chat list in step with the call as it happens, so a row reads
+    // "Incoming call" while it rings and "Missed call" the moment nobody takes
+    // it — rather than staying stale until the next refresh.
+    if (remoteCall?.contactId != null) {
+      unawaited(
+        _ref.read(mainDataProvider.notifier).applyCallActivity(
+              contactId: remoteCall!.contactId!,
+              at: remoteCall.createdAt ?? DateTime.now(),
+              direction: remoteCall.direction,
+              status: remoteCall.status,
+            ),
+      );
+    }
+
     switch (event) {
       case 'IncomingCall':
         if (remoteCall == null) return;
+
+        // Already on a call? Queue it instead of ringing.
+        //
+        // The backend deliberately sends no push to a busy agent, because iOS
+        // forces every PushKit push to become a CallKit ring — a queued call
+        // would stack as a call-waiting prompt over the live one. So this
+        // arrives over Reverb and belongs in the in-app queue, where it stays
+        // claimable for the ~20-30s Meta keeps it ringing.
+        if (_isOnCall && remoteCall.uuid != state.call?.uuid) {
+          _ref.read(callQueueProvider.notifier).add(
+                remoteCall.copyWith(
+                  metadata: {
+                    if (payload['sdp_offer'] != null)
+                      'sdp_offer': payload['sdp_offer'],
+                    ...?remoteCall.metadata,
+                  },
+                ),
+              );
+
+          return;
+        }
+
         // Dedupe across channels (org + agent), across multiple controller
         // instances within the same process (static set), AND across isolates
         // (CallKit native check).
@@ -415,6 +506,9 @@ class CallController extends StateNotifier<CallState> {
       case 'CallTakenByOtherAgent':
         // Another agent picked it up first — drop our ringer.
         if (remoteCall != null) {
+          _ref.read(callQueueProvider.notifier).remove(remoteCall.uuid);
+        }
+        if (remoteCall != null) {
           await CallkitService.instance.endCall(remoteCall.uuid);
         }
         await _teardown();
@@ -428,6 +522,13 @@ class CallController extends StateNotifier<CallState> {
 
       case 'CallEnded':
       case 'CallMissed':
+        if (remoteCall != null) {
+          _ref.read(callQueueProvider.notifier).remove(remoteCall.uuid);
+
+          // A queued call ending is not this agent's call ending — tearing
+          // down here would drop the conversation they are actually on.
+          if (remoteCall.uuid != state.call?.uuid) return;
+        }
         if (remoteCall != null) {
           await CallkitService.instance.endCall(remoteCall.uuid);
         }
@@ -570,6 +671,10 @@ class CallController extends StateNotifier<CallState> {
   }
 
   Future<void> _teardown() async {
+    // Reset the minimised flag, otherwise the next call inherits it and opens
+    // as a banner instead of a screen.
+    _ref.read(callMinimisedProvider.notifier).state = false;
+
     final endedUuid = state.call?.uuid;
     await _signaling.dispose();
     await WakelockPlus.disable();
@@ -592,6 +697,40 @@ class CallController extends StateNotifier<CallState> {
     super.dispose();
   }
 }
+
+/// Calls ringing right now that this agent has not taken.
+///
+/// Only ever holds calls that arrived while the agent was already on one. A
+/// free agent's first call is rung natively by CallKit, which is a better
+/// surface than anything in-app; queueing it as well would show the same call
+/// twice.
+class CallQueue extends StateNotifier<List<CallModel>> {
+  CallQueue() : super(const []);
+
+  void add(CallModel call) {
+    if (state.any((c) => c.uuid == call.uuid)) return;
+
+    state = [...state, call];
+  }
+
+  void remove(String uuid) {
+    if (!state.any((c) => c.uuid == uuid)) return;
+
+    state = state.where((c) => c.uuid != uuid).toList();
+  }
+
+  void clear() => state = const [];
+}
+
+final callQueueProvider =
+    StateNotifierProvider<CallQueue, List<CallModel>>((ref) => CallQueue());
+
+/// True while a running call's screen has been put away.
+///
+/// Minimising is purely a presentation state — the call itself is untouched —
+/// so it lives beside the controller rather than inside CallState, which
+/// mirrors the backend's view of the call.
+final callMinimisedProvider = StateProvider<bool>((ref) => false);
 
 final callControllerProvider =
     StateNotifierProvider<CallController, CallState>((ref) {

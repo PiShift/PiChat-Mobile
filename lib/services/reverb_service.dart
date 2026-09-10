@@ -389,6 +389,27 @@ class ReverbService {
         }
       }
 
+      // The temp row may already be gone: sendMediaMessage deletes it as soon
+      // as the HTTP response lands, and this broadcast often arrives just
+      // after. Falling back to the row already stored under the real id keeps
+      // the local file attached — without this, the echo overwrote the path to
+      // a just-recorded voice note and the bubble reverted to a download
+      // button seconds after sending.
+      if (inheritedLocalPath == null) {
+        final existing = await (_db.select(_db.chats)
+              ..where((t) => t.id.equals(chat.id)))
+            .getSingleOrNull();
+
+        final rawMeta = existing?.metadata;
+
+        if (rawMeta != null) {
+          try {
+            final meta = jsonDecode(rawMeta) as Map<String, dynamic>;
+            inheritedLocalPath = meta['_localFilePath'] as String?;
+          } catch (_) {}
+        }
+      }
+
       // Build the final chat, injecting the local file path into metadata
       Chat finalChat = chat;
       if (inheritedLocalPath != null || inheritedCaptionMap != null) {

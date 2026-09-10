@@ -55,6 +55,16 @@ class Template {
     required this.preview,
   });
 
+  /// Meta stores template names as slugs (`customer_invoice`). Agents think in
+  /// terms of what the template says, so every surface shows the readable form.
+  String get displayName => name
+      .replaceAll('_', ' ')
+      .split(' ')
+      .map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}')
+      .join(' ');
+
+  bool get isApproved => status.toLowerCase() == 'approved';
+
   factory Template.fromJson(Map<String, dynamic> json) {
     final variablesList = (json['variables'] as List<dynamic>? ?? [])
         .map((v) => TemplateVariable.fromJson(v as Map<String, dynamic>))

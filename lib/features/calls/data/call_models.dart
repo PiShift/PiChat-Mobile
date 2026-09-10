@@ -3,6 +3,9 @@
 // Domain models for the WhatsApp Calling feature.
 // Mirror the backend `CallResource` and `CallPermissionResource` shapes.
 
+/// How a call reads in a history list.
+enum CallKind { incoming, outgoing, missed }
+
 class CallModel {
   final int id;
   final String uuid;
@@ -15,6 +18,9 @@ class CallModel {
   final int? contactId;
   final String? contactUuid;
   final String? contactName;
+  /// Agent who took the call. The history is organization-wide, so a row
+  /// has to name who handled it.
+  final String? agentName;
   final int? durationSeconds;
   final String? endReason;
   final DateTime? createdAt;
@@ -34,6 +40,7 @@ class CallModel {
     this.contactId,
     this.contactUuid,
     this.contactName,
+    this.agentName,
     this.durationSeconds,
     this.endReason,
     this.createdAt,
@@ -41,6 +48,19 @@ class CallModel {
     this.endedAt,
     this.metadata,
   });
+
+  /// How the call reads in a history list.
+  ///
+  /// Three categories, matching WhatsApp: an unanswered *inbound* call is
+  /// Missed and is the only one worth colouring; an unanswered outbound call is
+  /// still just Outgoing, because nobody failed to act on it.
+  CallKind get kind {
+    if (direction == 'outbound') return CallKind.outgoing;
+
+    const unanswered = {'missed', 'rejected', 'failed', 'expired'};
+
+    return unanswered.contains(status) ? CallKind.missed : CallKind.incoming;
+  }
 
   factory CallModel.fromJson(Map<String, dynamic> json) {
     final contact = json['contact'] is Map ? json['contact'] as Map : null;
@@ -61,6 +81,7 @@ class CallModel {
       contactName: contact == null
           ? null
           : ('${contact['first_name'] ?? ''} ${contact['last_name'] ?? ''}').trim(),
+      agentName: json['agent_name'] as String?,
       durationSeconds: (json['duration_seconds'] as num?)?.toInt(),
       endReason: json['end_reason'] as String?,
       createdAt: _parseDate(json['created_at']),

@@ -9,6 +9,7 @@ import 'package:pichat/data/models/chat_media_model.dart';
 import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/data/models/timeline_event_model.dart';
+import 'package:pichat/data/repositories/label_repository.dart';
 import 'package:pichat/data/models/organization_model.dart';
 import 'package:pichat/data/models/user_model.dart';
 
@@ -27,8 +28,12 @@ part 'app_database.g.dart';
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
+  /// Opens the schema against a caller-supplied executor, so tests can run
+  /// against an in-memory database instead of the on-device file.
+  AppDatabase.forTesting(super.executor) : super();
+
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -45,6 +50,16 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(contacts, contacts.assignedAgentName);
         await m.addColumn(contacts, contacts.assignedAgentId);
         await m.addColumn(contacts, contacts.ticketStatus);
+      }
+      if (from < 4) {
+        // A missed call is conversation activity: the row moves up the list
+        // and previews the call, the same way a message would.
+        await m.addColumn(contacts, contacts.lastCallAt);
+        await m.addColumn(contacts, contacts.lastCallDirection);
+        await m.addColumn(contacts, contacts.lastCallStatus);
+      }
+      if (from < 5) {
+        await m.addColumn(contacts, contacts.labels);
       }
     },
   );
@@ -249,6 +264,70 @@ extension MediasUpdate on AppDatabase {
     );
   }
 
+  /// Upsert chats from the server without dropping `_localFilePath`.
+  ///
+  /// That key is ours, not the server's — it points at the copy of the file
+  /// already on this device, and it is the only reason an outbound voice note
+  /// can play straight after sending instead of offering a download. A plain
+  /// upsert of the server payload silently removed it every time the thread
+  /// was refreshed or paged, so the bubble reverted to a download button.
+  Future<void> upsertChatsPreservingLocalPaths(
+    List<ChatsCompanion> rows,
+  ) async {
+    final ids = [
+      for (final row in rows)
+        if (row.id.present) row.id.value,
+    ];
+
+    if (ids.isEmpty) return;
+
+    final existing = await (select(chats)..where((c) => c.id.isIn(ids))).get();
+
+    final localPaths = <int, String>{};
+
+    for (final row in existing) {
+      final raw = row.metadata;
+
+      if (raw == null) continue;
+
+      try {
+        final path = (jsonDecode(raw) as Map<String, dynamic>)['_localFilePath'];
+
+        if (path is String && path.isNotEmpty) localPaths[row.id] = path;
+      } catch (_) {
+        // Unreadable metadata is the server's problem, not a reason to abort
+        // the whole batch.
+      }
+    }
+
+    final merged = <ChatsCompanion>[];
+
+    for (final row in rows) {
+      final path = row.id.present ? localPaths[row.id.value] : null;
+
+      if (path == null) {
+        merged.add(row);
+        continue;
+      }
+
+      Map<String, dynamic> meta;
+
+      try {
+        meta = row.metadata.present && row.metadata.value != null
+            ? Map<String, dynamic>.from(
+                jsonDecode(row.metadata.value!) as Map)
+            : <String, dynamic>{};
+      } catch (_) {
+        meta = <String, dynamic>{};
+      }
+
+      meta['_localFilePath'] = path;
+      merged.add(row.copyWith(metadata: Value(jsonEncode(meta))));
+    }
+
+    await batch((b) => b.insertAllOnConflictUpdate(chats, merged));
+  }
+
   /// Inserts or updates a media row from server data, but never overwrites a
   /// locally-downloaded file (location == 'local'). This preserves the local
   /// path and location after the user downloads an inbound image/document.
@@ -299,6 +378,41 @@ extension ChatsUpdate on AppDatabase {
       ContactsCompanion(
         assignedAgentId: Value(agentId),
         assignedAgentName: Value(agentName),
+      ),
+    );
+  }
+
+  /// Stores the labels on a conversation after the agent changes them.
+  ///
+  /// Targeted write so it cannot disturb any other column, and immediate so the
+  /// chat list repaints without waiting for the next contacts fetch.
+  Future<int> setContactLabels({
+    required int contactId,
+    required List<Label> labels,
+  }) {
+    return (update(contacts)..where((t) => t.id.equals(contactId))).write(
+      ContactsCompanion(
+        labels: Value(jsonEncode(labels.map((l) => l.toJson()).toList())),
+      ),
+    );
+  }
+
+  /// Records the conversation's most recent call.
+  ///
+  /// Targeted write rather than an upsert of the whole contact, so it cannot
+  /// disturb any other column.
+  Future<int> setContactCallActivity({
+    required int contactId,
+    required DateTime at,
+    required String direction,
+    required String status,
+  }) {
+    return (update(contacts)..where((t) => t.id.equals(contactId))).write(
+      ContactsCompanion(
+        lastCallAt: Value(at),
+        lastCallDirection: Value(direction),
+        lastCallStatus: Value(status),
+        latestChatCreatedAt: Value(at),
       ),
     );
   }

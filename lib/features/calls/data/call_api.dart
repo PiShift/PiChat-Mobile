@@ -149,6 +149,19 @@ class CallApi {
     });
   }
 
+  /// This agent's current duty status: `available`, `busy`, `on_call` or
+  /// `offline`. Read from the server rather than cached, so it stays correct
+  /// after a reinstall or after being signed out by a login elsewhere.
+  Future<String?> fetchAgentStatus() async {
+    final res = await _dio.get('/agents/me/status', queryParameters: {
+      'organization_id': _org,
+    });
+
+    final data = res.data['data'];
+
+    return data is Map ? data['status'] as String? : null;
+  }
+
   Future<CallModel> fetchCall(String uuid) async {
     final res = await _dio.get('/calls/$uuid', queryParameters: {
       'organization_id': _org,

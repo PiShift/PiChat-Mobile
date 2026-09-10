@@ -75,15 +75,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         context.go('/home/calls');
         break;
       case 2:
-        context.go('/home/groups');
-        break;
-      case 3:
         context.go('/home/templates');
         break;
-      case 4:
+      case 3:
         context.go('/home/campaigns');
         break;
-      case 5:
+      case 4:
         context.go('/home/settings');
         break;
     }
@@ -141,7 +138,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               items: [
                 PiNavItem(icon: LucideIcons.messageCircle, label: 'home.nav.chats'.tr()),
                 PiNavItem(icon: LucideIcons.phone,          label: 'home.nav.calls'.tr()),
-                PiNavItem(icon: LucideIcons.users,          label: 'home.nav.groups'.tr()),
+                // Groups is hidden, not deleted: Meta does not yet allow
+                // business accounts to use WhatsApp groups, so the screen has
+                // nothing to show. The route and screen stay in place for when
+                // that changes.
                 PiNavItem(icon: LucideIcons.fileText,       label: 'home.nav.templates'.tr()),
                 PiNavItem(icon: LucideIcons.megaphone,      label: 'home.nav.campaigns'.tr()),
                 PiNavItem(icon: LucideIcons.settings,       label: 'home.nav.settings'.tr()),

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:pichat/core/constants/app_constants.dart';
 import 'package:pichat/core/theme/app_colors.dart';
+import 'package:pichat/data/repositories/label_repository.dart';
 import 'package:pichat/core/utils/whatsapp_text.dart';
 import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/core/theme/app_spacing.dart';
@@ -26,8 +27,10 @@ class ContactItem extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          height: Sz.h(context, 72),
+        ConstrainedBox(
+          // Height follows the content now: a conversation with labels needs a
+          // third line, and a fixed 72 clipped it.
+          constraints: BoxConstraints(minHeight: Sz.h(context, 72)),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: PiSpacing.space16),
             child: Row(
@@ -67,7 +70,13 @@ class ContactItem extends StatelessWidget {
                           ],
                         ],
                       ),
-                      if (lastChat != null && lastChat.deletedAt == null) ...[
+                      // A call more recent than the last message is what
+                      // actually happened last on this conversation, so it is
+                      // what the row previews — the same rule WhatsApp uses.
+                      if (_callIsLatest(contact, lastChat)) ...[
+                        const SizedBox(height: 2),
+                        _CallPreview(contact: contact, unread: hasUnread),
+                      ] else if (lastChat != null && lastChat.deletedAt == null) ...[
                         const SizedBox(height: 2),
                         Row(
                           children: [
@@ -85,6 +94,13 @@ class ContactItem extends StatelessWidget {
                           ],
                         ),
                       ],
+                      // Labels sit under the preview, on their own line.
+                      // Beside the name they read as a second agent chip, and a
+                      // conversation can carry several — they need the width.
+                      if (contact.labels.isNotEmpty) ...[
+                        const SizedBox(height: 5),
+                        _LabelStrip(labels: contact.labels),
+                      ],
                     ],
                   ),
                 ),
@@ -96,9 +112,11 @@ class ContactItem extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    if (lastChat != null)
+                    if (lastChat != null || contact.lastCallAt != null)
                       Text(
-                        _formatTime(contact.latestChatCreatedAt ?? lastChat.createdAt),
+                        _formatTime(contact.latestChatCreatedAt ??
+                            contact.lastCallAt ??
+                            lastChat!.createdAt),
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: Sz.sp(context, 12),
                           fontWeight: hasUnread ? FontWeight.w600 : FontWeight.w400,
@@ -350,6 +368,134 @@ class _AgentChip extends StatelessWidget {
           fontWeight: FontWeight.w600,
           color: PiPalette.primary500,
           height: 1.2,
+        ),
+      ),
+    );
+  }
+}
+
+/// True when the conversation's most recent activity is a call rather than a
+/// message.
+bool _callIsLatest(Contact contact, Chat? lastChat) {
+  final callAt = contact.lastCallAt;
+
+  if (callAt == null) return false;
+  if (lastChat == null || lastChat.deletedAt != null) return true;
+
+  return callAt.isAfter(lastChat.createdAt);
+}
+
+/// Row preview for a call, mirroring how a message preview reads.
+class _CallPreview extends StatelessWidget {
+  const _CallPreview({required this.contact, required this.unread});
+
+  final Contact contact;
+  final bool unread;
+
+  @override
+  Widget build(BuildContext context) {
+    final inbound = contact.lastCallDirection == 'inbound';
+    final missed = const {'missed', 'rejected', 'failed', 'expired'}
+        .contains(contact.lastCallStatus);
+
+    // Missed is the only state worth colouring: it is the one that needs an
+    // agent to do something about it.
+    final color = missed ? PiPalette.error500 : PiColors.of(context).textSecondary;
+
+    final icon = missed
+        ? LucideIcons.phoneMissed
+        : (inbound ? LucideIcons.phoneIncoming : LucideIcons.phoneOutgoing);
+
+    final label = missed
+        ? (inbound ? 'Missed call' : 'No answer')
+        : (inbound ? 'Incoming call' : 'Outgoing call');
+
+    return Row(
+      children: [
+        Icon(icon, size: 13, color: color),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: Sz.sp(context, 13),
+              fontWeight: (unread || missed) ? FontWeight.w600 : FontWeight.w400,
+              color: color,
+              height: 18 / 13,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Labels on a chat list row.
+///
+/// Solid fills, unlike the tinted agent chip beside the name — the two were
+/// previously indistinguishable, so a conversation looked like it carried two
+/// assignees. Colour is the whole point of a label: it is what lets an agent
+/// pick a conversation out of a list without reading anything.
+class _LabelStrip extends StatelessWidget {
+  const _LabelStrip({required this.labels});
+
+  final List<Label> labels;
+
+  @override
+  Widget build(BuildContext context) {
+    // Two named, then a count. Three or more chips squeeze the row and the
+    // names stop being readable, which defeats the purpose.
+    const maxNamed = 2;
+    final named = labels.take(maxNamed).toList();
+    final overflow = labels.length - named.length;
+
+    return Row(
+      children: [
+        for (final label in named)
+          Flexible(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: _LabelChip(label: label),
+            ),
+          ),
+        if (overflow > 0)
+          Text(
+            '+$overflow',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: Sz.sp(context, 10.5),
+              fontWeight: FontWeight.w600,
+              color: PiColors.of(context).textSecondary,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _LabelChip extends StatelessWidget {
+  const _LabelChip({required this.label});
+
+  final Label label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: label.displayColor,
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        label.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: Sz.sp(context, 10.5),
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          height: 1.25,
         ),
       ),
     );

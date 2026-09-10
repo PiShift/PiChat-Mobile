@@ -11,6 +11,7 @@ import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/data/models/chat_media_model.dart';
 import 'package:pichat/features/chat/application/local_media_manager.dart';
 import 'package:pichat/features/chat/application/media_providers.dart';
+import 'package:pichat/features/chat/application/waveform_provider.dart';
 
 class AudioPreview extends ConsumerStatefulWidget {
   final ChatMedia media;
@@ -267,6 +268,12 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
                     // Stable per message so the shape never changes between
                     // rebuilds or app launches.
                     seed: widget.media.id,
+                    // Real peaks, decoded off the build path. Null until they
+                    // arrive — and on a file this device cannot decode — in
+                    // which case the seeded shape is drawn instead.
+                    amplitudes: hasLocalFile
+                        ? ref.watch(waveformProvider(localPath)).value
+                        : null,
                     progress: progress,
                     playedColor: colors.primary500,
                     remainingColor: colors.divider,

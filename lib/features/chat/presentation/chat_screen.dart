@@ -1,5 +1,10 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:pichat/data/db/app_database.dart';
+import 'package:pichat/data/db/database_provider.dart';
+import 'package:pichat/features/labels/presentation/assign_labels_sheet.dart';
+import 'package:pichat/data/repositories/label_repository.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
@@ -121,12 +126,40 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     }
   }
 
+  /// Label a conversation straight from the list.
+  ///
+  /// Writes the result locally on return so the row repaints at once rather
+  /// than waiting for the next contacts fetch.
+  Future<void> _showLabelPicker(Contact contact) async {
+    HapticFeedback.selectionClick();
+
+    final result = await showModalBottomSheet<List<Label>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AssignLabelsSheet(
+        contactUuid: contact.uuid,
+        current: contact.labels,
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    await ref
+        .read(appDatabaseProvider)
+        .setContactLabels(contactId: contact.id, labels: result);
+
+    // The in-memory list holds its own copy of the contact.
+    ref.read(mainDataProvider.notifier).applyLabels(contact.id, result);
+  }
+
   @override
   Widget build(BuildContext context) {
     final contacts = ref.watch(filteredContactsProvider);
     final allContacts = ref.watch(mainDataProvider);
     final activeFilter = ref.watch(activeFilterProvider);
     final isLoading = allContacts.isEmpty;
+    final isRefreshing = ref.watch(contactsRefreshingProvider);
     final listNotifier = ref.read(mainDataProvider.notifier);
     final showLoadMoreFooter = listNotifier.hasMore &&
         ref.watch(searchQueryProvider).isEmpty;
@@ -158,6 +191,21 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
             // ── Filter chips ─────────────────────────────────────────────────
             _buildFilterRow(context, activeFilter, unreadCount),
             const SizedBox(height: PiSpacing.space8),
+
+            // Says the list is being re-read. It is offline-first, so a warm
+            // start shows cached conversations at once and replaces them when
+            // the fetch lands — without this an agent cannot tell a stale list
+            // from a current one, and may act on rows that are minutes old.
+            SizedBox(
+              height: 2,
+              child: isRefreshing
+                  ? LinearProgressIndicator(
+                      minHeight: 2,
+                      backgroundColor: Colors.transparent,
+                      color: PiPalette.primary500,
+                    )
+                  : null,
+            ),
 
             // ── Contact list ─────────────────────────────────────────────────
             Expanded(
@@ -203,6 +251,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
                                 return GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () => context.push('/home/chats/detail', extra: contact),
+                                  // Long-press to label, the gesture WhatsApp
+                                  // teaches ("tap and hold on any contact to
+                                  // label it"). Labelling is triage done while
+                                  // scanning the list — making an agent open
+                                  // each conversation first defeats it.
+                                  onLongPress: () => _showLabelPicker(contact),
                                   child: ContactItem(contact: contact),
                                 );
                               },

@@ -51,6 +51,18 @@ class LocalMediaManager {
       return '$_baseDir/$contactId/$mediaType/$fileName';
     }
 
+    /// The form of [absolutePath] that is safe to persist.
+    ///
+    /// Anything already inside our own media tree is stored relative, so it
+    /// survives iOS moving the documents container. A path from somewhere else
+    /// — a gallery pick, a file picker's cache — is returned unchanged: it is
+    /// still valid for this run, and the message can be re-downloaded later.
+    static String storedPath(String absolutePath) {
+      final marker = absolutePath.indexOf('/$_baseDir/');
+
+      return marker == -1 ? absolutePath : absolutePath.substring(marker + 1);
+    }
+
     Future<String> _getMediaPath(String contactId, String mediaType) async {
       final directory = await getApplicationDocumentsDirectory();
       final path = '${directory.path}/$_baseDir/$contactId/$mediaType';

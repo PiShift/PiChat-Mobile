@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/dio_provider.dart';
 import 'package:pichat/core/router/app_router.dart';
@@ -11,6 +12,7 @@ import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/repositories/settings_repository.dart';
 import 'package:pichat/features/auth/application/auth_controller.dart';
 import 'package:pichat/core/services/notification_service.dart';
+import 'package:pichat/features/settings/application/agent_availability.dart';
 import 'package:pichat/features/settings/presentation/notification_sound_picker_sheet.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -28,6 +30,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final router = ref.read(appRouterProvider);
     final profileAsync = ref.watch(userProfileProvider);
     final settingsAsync = ref.watch(appSettingsProvider);
+
+    // Defaults to on duty while the status is still loading, so the switch
+    // never briefly reads "off duty" to an agent who is not.
+    final available = ref.watch(agentAvailabilityProvider).maybeWhen(
+          data: (value) => value,
+          orElse: () => true,
+        );
     final size = MediaQuery.sizeOf(context);
 
     return Scaffold(
@@ -64,11 +73,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   title: 'settings.section.notifications'.tr(),
                   icon: Icons.notifications_outlined,
                   children: [
+                    // Replaces the old push-notifications switch. That one
+                    // spoke only to notifications, so an agent could turn it
+                    // off and still have calls rung at them. Availability
+                    // governs both, and the router reads the same value.
                     _buildSwitchTile(
-                      title: 'settings.notifications.push_title'.tr(),
-                      subtitle: 'settings.notifications.push_subtitle'.tr(),
-                      value: settings.notificationsEnabled,
-                      onChanged: (v) => _updateSetting('notifications_enabled', v),
+                      title: 'Available for chats and calls',
+                      subtitle: available
+                          ? 'You receive message notifications and incoming calls'
+                          : 'You are off duty — calls go to other agents',
+                      value: available,
+                      onChanged: (v) async {
+                        try {
+                          await ref
+                              .read(agentAvailabilityProvider.notifier)
+                              .set(v);
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Could not update: $e')),
+                            );
+                          }
+                        }
+                      },
                     ),
                     _buildSwitchTile(
                       title: 'settings.notifications.sound_title'.tr(),
@@ -96,6 +123,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       subtitle: 'settings.chat.enter_to_send_subtitle'.tr(),
                       value: settings.enterToSend,
                       onChanged: (v) => _updateSetting('enter_to_send', v),
+                    ),
+                  ],
+                ),
+
+                Divider(height: 1, color: PiColors.of(context).divider),
+
+                // Workspace — things shared by the whole team, as opposed to
+                // this agent's own preferences below.
+                _buildSection(
+                  title: 'Workspace',
+                  icon: Icons.workspaces_outline,
+                  children: [
+                    _buildOptionTile(
+                      title: 'Labels',
+                      subtitle: 'Organise conversations for the whole team',
+                      onTap: () => context.push('/labels'),
                     ),
                   ],
                 ),

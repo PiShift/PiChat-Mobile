@@ -17,6 +17,7 @@ import 'package:pichat/features/chat/presentation/chat_threads.dart';
 import 'package:pichat/features/chat/presentation/new_chat_screen.dart';
 import 'package:pichat/features/home/presentation/home_screen.dart';
 import 'package:pichat/features/select_organization/presentation/select_org_screen.dart';
+import 'package:pichat/features/labels/presentation/labels_screen.dart';
 import 'package:pichat/features/settings/presentation/settings_screen.dart';
 import 'package:pichat/features/splash/presentation/splash_screen.dart';
 import 'package:pichat/features/templates/presentation/templates_management_screen.dart';
@@ -95,6 +96,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/home/settings',
             builder: (context, state) => const SettingsScreen(),
+          ),
+          GoRoute(
+            path: '/labels',
+            builder: (context, state) => const LabelsScreen(),
           ),
           GoRoute(
             path: '/home/chats/new',

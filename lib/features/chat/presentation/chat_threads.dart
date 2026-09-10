@@ -13,7 +13,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:pichat/features/chat/application/local_media_manager.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:pichat/core/state/auth_state.dart';
@@ -23,6 +23,8 @@ import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/core/theme/app_spacing.dart';
 import 'package:pichat/core/utils/chat_date.dart';
 import 'package:pichat/features/chat/widgets/chat_date_chip.dart';
+import 'package:pichat/data/repositories/label_repository.dart';
+import 'package:pichat/features/labels/presentation/assign_labels_sheet.dart';
 import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/features/chat/widgets/conversation_status_bar.dart';
 import 'package:pichat/features/chat/widgets/timeline_event_item.dart';
@@ -268,6 +270,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       case 'template':
         _showTemplatePicker();
         break;
+      case 'labels':
+        _showLabelPicker();
+        break;
       case 'assign':
         _showAgentPicker();
         break;
@@ -306,6 +311,33 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         ),
       ),
     );
+  }
+
+  /// Pick the labels on this conversation.
+  ///
+  /// The chosen set is written to the local row on return so the chat list and
+  /// the thread reflect it immediately, rather than after the next refresh.
+  Future<void> _showLabelPicker() async {
+    final live = ref.read(contactByIdProvider(widget.contact.id)).maybeWhen(
+          data: (value) => value,
+          orElse: () => null,
+        );
+
+    final result = await showModalBottomSheet<List<Label>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AssignLabelsSheet(
+        contactUuid: widget.contact.uuid,
+        current: (live ?? widget.contact).labels,
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    await ref
+        .read(appDatabaseProvider)
+        .setContactLabels(contactId: widget.contact.id, labels: result);
   }
 
   /// Show agent picker bottom sheet
@@ -1381,6 +1413,15 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                   ),
                   const PopupMenuDivider(),
                   PopupMenuItem(
+                    value: 'labels',
+                    child: Row(children: [
+                      Icon(LucideIcons.tag,
+                          size: 18, color: PiColors.of(context).textSecondary),
+                      const SizedBox(width: 12),
+                      const Text('Labels'),
+                    ]),
+                  ),
+                  PopupMenuItem(
                     value: 'assign',
                     child: Row(children: [
                       Icon(LucideIcons.userPlus,
@@ -1659,7 +1700,15 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       }
     }
 
-    final dir = await getTemporaryDirectory();
+    // Recorded into our own media directory rather than the temporary one, and
+    // laid out by LocalMediaManager so the path can be resolved again later.
+    //
+    // A sent voice note is kept — the agent plays their own message back from
+    // the thread. A /tmp path could not survive that: the OS reclaims it, and
+    // nothing in it identifies where the file belongs, so the bubble fell
+    // through to a download that then failed.
+    final dirPath = await LocalMediaManager()
+        .getMediaPath('${widget.contact.id}', 'audio');
     // WhatsApp Cloud API only renders an audio upload as a *voice note*
     // (mic icon, transcription, auto-play) when it's encoded as OPUS in an
     // OGG container. Plain AAC/M4A clips arrive as basic audio files.
@@ -1670,7 +1719,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     final encoder = supportsOpus ? AudioEncoder.opus : AudioEncoder.aacLc;
     final ext = supportsOpus ? 'ogg' : 'm4a';
     final path =
-        '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
+        '$dirPath/voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
 
     await _audioRecorder.start(
       RecordConfig(

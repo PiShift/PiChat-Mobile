@@ -6,6 +6,7 @@ import 'package:pichat/features/chat/application/local_media_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/provider_logger.dart';
 import 'package:pichat/core/services/notification_service.dart';
+import 'package:pichat/features/calls/widgets/call_chrome.dart';
 import 'package:pichat/firebase_options.dart';
 
 import 'core/router/app_router.dart';
@@ -124,7 +125,25 @@ class _PiChatAppState extends ConsumerState<PiChatApp>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           ref.read(callRouterContextProvider.notifier).state = context;
         });
-        return child ?? const SizedBox.shrink();
+        // Call chrome lives here rather than inside HomeScreen so it survives
+        // pushed routes — a chat thread or the media viewer would otherwise
+        // cover it, and a call banner that disappears when you open a
+        // conversation is useless precisely when it is needed.
+        //
+        // Stacked, not inserted into the layout: the chat thread's scroll
+        // positioning is sensitive, and reflowing it mid-call would move the
+        // reader's place.
+        return Stack(
+          children: [
+            child ?? const SizedBox.shrink(),
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: CallChrome(),
+            ),
+          ],
+        );
       },
     );
   }

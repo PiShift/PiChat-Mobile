@@ -4,16 +4,16 @@ import 'package:flutter/material.dart';
 
 /// The bar chart behind a voice note, with a playhead.
 ///
-/// The bars are derived from the message's own id rather than decoded from the
-/// audio. Reading real amplitudes means decoding every opus file on the device,
-/// which is slow and would have to happen before the bubble could be drawn; a
-/// seeded shape is stable for a given message, looks like speech, and costs
-/// nothing. Swap [_amplitudesFor] for decoded samples if true accuracy is ever
-/// worth the cost.
+/// Draws real decoded amplitudes when [amplitudes] is supplied. Decoding reads
+/// the whole clip, so it happens off the build path — until it lands, and on
+/// any file the device cannot decode, the bars fall back to a shape seeded from
+/// the message id. That fallback is stable per message, reads as speech, and
+/// seeks correctly, so a bubble is never blank and never jumps around.
 class VoiceWaveform extends StatelessWidget {
   const VoiceWaveform({
     required this.seed,
     required this.progress,
+    this.amplitudes,
     required this.playedColor,
     required this.remainingColor,
     this.height = 28,
@@ -23,6 +23,9 @@ class VoiceWaveform extends StatelessWidget {
 
   /// Stable per message, so the same note always draws the same shape.
   final int seed;
+
+  /// Decoded peaks in 0..1, or null while they are still being read.
+  final List<double>? amplitudes;
 
   /// 0..1 playback position.
   final double progress;
@@ -59,7 +62,8 @@ class VoiceWaveform extends StatelessWidget {
             width: double.infinity,
             child: CustomPaint(
               painter: _WaveformPainter(
-                amplitudes: _amplitudesFor(seed, barCount),
+                amplitudes: _resample(amplitudes, barCount) ??
+                    _amplitudesFor(seed, barCount),
                 progress: progress.clamp(0.0, 1.0),
                 playedColor: playedColor,
                 remainingColor: remainingColor,
@@ -70,6 +74,30 @@ class VoiceWaveform extends StatelessWidget {
       },
     );
   }
+}
+
+/// Fit decoded peaks to the number of bars this bubble can show.
+///
+/// The decoder is asked for a fixed count, but bubble width varies with the
+/// screen, so the samples are bucketed and each bucket keeps its loudest value.
+/// Averaging instead would flatten the transients that make speech legible.
+List<double>? _resample(List<double>? source, int count) {
+  if (source == null || source.isEmpty || count <= 0) return null;
+
+  if (source.length == count) return source;
+
+  return List<double>.generate(count, (i) {
+    final start = (i * source.length / count).floor();
+    final end = math.max(start + 1, ((i + 1) * source.length / count).floor());
+
+    var peak = 0.0;
+
+    for (var j = start; j < end && j < source.length; j++) {
+      if (source[j] > peak) peak = source[j];
+    }
+
+    return peak;
+  });
 }
 
 /// A speech-like envelope: random peaks smoothed against their neighbours so the

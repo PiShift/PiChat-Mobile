@@ -11,6 +11,7 @@ import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/data/models/timeline_event_model.dart';
+import 'package:pichat/features/chat/application/local_media_manager.dart';
 
 /// Thrown when the server rejects a plain text message because the
 /// 24-hour WhatsApp messaging window has expired.
@@ -105,13 +106,11 @@ class ChatRepository {
 
     if (messages.isNotEmpty) {
       await _db.transaction(() async {
-        // Insert all chats
-        await _db.batch((batch) {
-          batch.insertAllOnConflictUpdate(
-            _db.chats,
-            messages.map((m) => m.toCompanion()).toList(),
-          );
-        });
+        // Insert all chats, keeping any local file paths already recorded —
+        // the server payload has no idea a copy of the file is on this device.
+        await _db.upsertChatsPreservingLocalPaths(
+          messages.map((m) => m.toCompanion()).toList(),
+        );
 
         // Insert all media — preserving locally-downloaded paths
         final mediaList = messages.where((m) => m.media != null).toList();
@@ -252,7 +251,10 @@ class ChatRepository {
       metadata: {
         'type': type,
         type: mediaType,
-        '_localFilePath': file.path, // used by ChatMessageItem to render local preview
+        // Used by ChatMessageItem to render the local preview instead of
+        // downloading. Stored via storedPath() so a recording kept in our own
+        // media tree stays resolvable after a restart or reinstall.
+        '_localFilePath': LocalMediaManager.storedPath(file.path),
       },
       status: 'pending',
       isRead: true,
@@ -280,7 +282,7 @@ class ChatRepository {
           // Always build an updated metadata map
           final meta = Map<String, dynamic>.from(sent.metadata ?? {});
           // 1) Keep image accessible from local file — no network download needed
-          meta['_localFilePath'] = file.path;
+          meta['_localFilePath'] = LocalMediaManager.storedPath(file.path);
           // 2) If server didn't store caption, restore it from what we sent
           if (caption != null && caption.isNotEmpty) {
             final serverType = meta['type'] as String? ?? type;

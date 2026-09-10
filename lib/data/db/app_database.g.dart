@@ -1772,6 +1772,29 @@ class $ContactsTable extends Contacts
   late final GeneratedColumn<String> ticketStatus = GeneratedColumn<String>(
       'ticket_status', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _lastCallAtMeta =
+      const VerificationMeta('lastCallAt');
+  @override
+  late final GeneratedColumn<DateTime> lastCallAt = GeneratedColumn<DateTime>(
+      'last_call_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _lastCallDirectionMeta =
+      const VerificationMeta('lastCallDirection');
+  @override
+  late final GeneratedColumn<String> lastCallDirection =
+      GeneratedColumn<String>('last_call_direction', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _lastCallStatusMeta =
+      const VerificationMeta('lastCallStatus');
+  @override
+  late final GeneratedColumn<String> lastCallStatus = GeneratedColumn<String>(
+      'last_call_status', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _labelsMeta = const VerificationMeta('labels');
+  @override
+  late final GeneratedColumn<String> labels = GeneratedColumn<String>(
+      'labels', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -1804,6 +1827,10 @@ class $ContactsTable extends Contacts
         assignedAgentName,
         assignedAgentId,
         ticketStatus,
+        lastCallAt,
+        lastCallDirection,
+        lastCallStatus,
+        labels,
         createdAt,
         updatedAt
       ];
@@ -1904,6 +1931,28 @@ class $ContactsTable extends Contacts
           ticketStatus.isAcceptableOrUnknown(
               data['ticket_status']!, _ticketStatusMeta));
     }
+    if (data.containsKey('last_call_at')) {
+      context.handle(
+          _lastCallAtMeta,
+          lastCallAt.isAcceptableOrUnknown(
+              data['last_call_at']!, _lastCallAtMeta));
+    }
+    if (data.containsKey('last_call_direction')) {
+      context.handle(
+          _lastCallDirectionMeta,
+          lastCallDirection.isAcceptableOrUnknown(
+              data['last_call_direction']!, _lastCallDirectionMeta));
+    }
+    if (data.containsKey('last_call_status')) {
+      context.handle(
+          _lastCallStatusMeta,
+          lastCallStatus.isAcceptableOrUnknown(
+              data['last_call_status']!, _lastCallStatusMeta));
+    }
+    if (data.containsKey('labels')) {
+      context.handle(_labelsMeta,
+          labels.isAcceptableOrUnknown(data['labels']!, _labelsMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -1954,6 +2003,14 @@ class $ContactsTable extends Contacts
           .read(DriftSqlType.int, data['${effectivePrefix}assigned_agent_id']),
       ticketStatus: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}ticket_status']),
+      lastCallAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}last_call_at']),
+      lastCallDirection: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}last_call_direction']),
+      lastCallStatus: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}last_call_status']),
+      labels: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}labels']),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       updatedAt: attachedDatabase.typeMapping
@@ -1988,6 +2045,19 @@ class ContactData extends DataClass implements Insertable<ContactData> {
   final String? assignedAgentName;
   final int? assignedAgentId;
   final String? ticketStatus;
+
+  /// Most recent call, denormalised so the list row can preview it next to the
+  /// last message without a join per row.
+  final DateTime? lastCallAt;
+  final String? lastCallDirection;
+  final String? lastCallStatus;
+
+  /// Labels on this conversation, as the JSON array the server sends.
+  ///
+  /// Stored whole rather than in a join table: labels are read to paint chips,
+  /// never queried locally, and keeping them denormalised means the chat list
+  /// renders from one row per conversation.
+  final String? labels;
   final DateTime createdAt;
   final DateTime? updatedAt;
   const ContactData(
@@ -2007,6 +2077,10 @@ class ContactData extends DataClass implements Insertable<ContactData> {
       this.assignedAgentName,
       this.assignedAgentId,
       this.ticketStatus,
+      this.lastCallAt,
+      this.lastCallDirection,
+      this.lastCallStatus,
+      this.labels,
       required this.createdAt,
       this.updatedAt});
   @override
@@ -2045,6 +2119,18 @@ class ContactData extends DataClass implements Insertable<ContactData> {
     }
     if (!nullToAbsent || ticketStatus != null) {
       map['ticket_status'] = Variable<String>(ticketStatus);
+    }
+    if (!nullToAbsent || lastCallAt != null) {
+      map['last_call_at'] = Variable<DateTime>(lastCallAt);
+    }
+    if (!nullToAbsent || lastCallDirection != null) {
+      map['last_call_direction'] = Variable<String>(lastCallDirection);
+    }
+    if (!nullToAbsent || lastCallStatus != null) {
+      map['last_call_status'] = Variable<String>(lastCallStatus);
+    }
+    if (!nullToAbsent || labels != null) {
+      map['labels'] = Variable<String>(labels);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     if (!nullToAbsent || updatedAt != null) {
@@ -2088,6 +2174,17 @@ class ContactData extends DataClass implements Insertable<ContactData> {
       ticketStatus: ticketStatus == null && nullToAbsent
           ? const Value.absent()
           : Value(ticketStatus),
+      lastCallAt: lastCallAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastCallAt),
+      lastCallDirection: lastCallDirection == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastCallDirection),
+      lastCallStatus: lastCallStatus == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastCallStatus),
+      labels:
+          labels == null && nullToAbsent ? const Value.absent() : Value(labels),
       createdAt: Value(createdAt),
       updatedAt: updatedAt == null && nullToAbsent
           ? const Value.absent()
@@ -2117,6 +2214,11 @@ class ContactData extends DataClass implements Insertable<ContactData> {
           serializer.fromJson<String?>(json['assignedAgentName']),
       assignedAgentId: serializer.fromJson<int?>(json['assignedAgentId']),
       ticketStatus: serializer.fromJson<String?>(json['ticketStatus']),
+      lastCallAt: serializer.fromJson<DateTime?>(json['lastCallAt']),
+      lastCallDirection:
+          serializer.fromJson<String?>(json['lastCallDirection']),
+      lastCallStatus: serializer.fromJson<String?>(json['lastCallStatus']),
+      labels: serializer.fromJson<String?>(json['labels']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
     );
@@ -2141,6 +2243,10 @@ class ContactData extends DataClass implements Insertable<ContactData> {
       'assignedAgentName': serializer.toJson<String?>(assignedAgentName),
       'assignedAgentId': serializer.toJson<int?>(assignedAgentId),
       'ticketStatus': serializer.toJson<String?>(ticketStatus),
+      'lastCallAt': serializer.toJson<DateTime?>(lastCallAt),
+      'lastCallDirection': serializer.toJson<String?>(lastCallDirection),
+      'lastCallStatus': serializer.toJson<String?>(lastCallStatus),
+      'labels': serializer.toJson<String?>(labels),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime?>(updatedAt),
     };
@@ -2163,6 +2269,10 @@ class ContactData extends DataClass implements Insertable<ContactData> {
           Value<String?> assignedAgentName = const Value.absent(),
           Value<int?> assignedAgentId = const Value.absent(),
           Value<String?> ticketStatus = const Value.absent(),
+          Value<DateTime?> lastCallAt = const Value.absent(),
+          Value<String?> lastCallDirection = const Value.absent(),
+          Value<String?> lastCallStatus = const Value.absent(),
+          Value<String?> labels = const Value.absent(),
           DateTime? createdAt,
           Value<DateTime?> updatedAt = const Value.absent()}) =>
       ContactData(
@@ -2189,6 +2299,13 @@ class ContactData extends DataClass implements Insertable<ContactData> {
             : this.assignedAgentId,
         ticketStatus:
             ticketStatus.present ? ticketStatus.value : this.ticketStatus,
+        lastCallAt: lastCallAt.present ? lastCallAt.value : this.lastCallAt,
+        lastCallDirection: lastCallDirection.present
+            ? lastCallDirection.value
+            : this.lastCallDirection,
+        lastCallStatus:
+            lastCallStatus.present ? lastCallStatus.value : this.lastCallStatus,
+        labels: labels.present ? labels.value : this.labels,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
       );
@@ -2224,6 +2341,15 @@ class ContactData extends DataClass implements Insertable<ContactData> {
       ticketStatus: data.ticketStatus.present
           ? data.ticketStatus.value
           : this.ticketStatus,
+      lastCallAt:
+          data.lastCallAt.present ? data.lastCallAt.value : this.lastCallAt,
+      lastCallDirection: data.lastCallDirection.present
+          ? data.lastCallDirection.value
+          : this.lastCallDirection,
+      lastCallStatus: data.lastCallStatus.present
+          ? data.lastCallStatus.value
+          : this.lastCallStatus,
+      labels: data.labels.present ? data.labels.value : this.labels,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -2248,6 +2374,10 @@ class ContactData extends DataClass implements Insertable<ContactData> {
           ..write('assignedAgentName: $assignedAgentName, ')
           ..write('assignedAgentId: $assignedAgentId, ')
           ..write('ticketStatus: $ticketStatus, ')
+          ..write('lastCallAt: $lastCallAt, ')
+          ..write('lastCallDirection: $lastCallDirection, ')
+          ..write('lastCallStatus: $lastCallStatus, ')
+          ..write('labels: $labels, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -2255,25 +2385,30 @@ class ContactData extends DataClass implements Insertable<ContactData> {
   }
 
   @override
-  int get hashCode => Object.hash(
-      id,
-      uuid,
-      orgId,
-      firstName,
-      lastName,
-      fullName,
-      phone,
-      formattedPhone,
-      latestChatCreatedAt,
-      avatar,
-      unreadCount,
-      unreadMessages,
-      lastChatId,
-      assignedAgentName,
-      assignedAgentId,
-      ticketStatus,
-      createdAt,
-      updatedAt);
+  int get hashCode => Object.hashAll([
+        id,
+        uuid,
+        orgId,
+        firstName,
+        lastName,
+        fullName,
+        phone,
+        formattedPhone,
+        latestChatCreatedAt,
+        avatar,
+        unreadCount,
+        unreadMessages,
+        lastChatId,
+        assignedAgentName,
+        assignedAgentId,
+        ticketStatus,
+        lastCallAt,
+        lastCallDirection,
+        lastCallStatus,
+        labels,
+        createdAt,
+        updatedAt
+      ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2294,6 +2429,10 @@ class ContactData extends DataClass implements Insertable<ContactData> {
           other.assignedAgentName == this.assignedAgentName &&
           other.assignedAgentId == this.assignedAgentId &&
           other.ticketStatus == this.ticketStatus &&
+          other.lastCallAt == this.lastCallAt &&
+          other.lastCallDirection == this.lastCallDirection &&
+          other.lastCallStatus == this.lastCallStatus &&
+          other.labels == this.labels &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -2315,6 +2454,10 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
   final Value<String?> assignedAgentName;
   final Value<int?> assignedAgentId;
   final Value<String?> ticketStatus;
+  final Value<DateTime?> lastCallAt;
+  final Value<String?> lastCallDirection;
+  final Value<String?> lastCallStatus;
+  final Value<String?> labels;
   final Value<DateTime> createdAt;
   final Value<DateTime?> updatedAt;
   const ContactsCompanion({
@@ -2334,6 +2477,10 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
     this.assignedAgentName = const Value.absent(),
     this.assignedAgentId = const Value.absent(),
     this.ticketStatus = const Value.absent(),
+    this.lastCallAt = const Value.absent(),
+    this.lastCallDirection = const Value.absent(),
+    this.lastCallStatus = const Value.absent(),
+    this.labels = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
@@ -2354,6 +2501,10 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
     this.assignedAgentName = const Value.absent(),
     this.assignedAgentId = const Value.absent(),
     this.ticketStatus = const Value.absent(),
+    this.lastCallAt = const Value.absent(),
+    this.lastCallDirection = const Value.absent(),
+    this.lastCallStatus = const Value.absent(),
+    this.labels = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   })  : uuid = Value(uuid),
@@ -2377,6 +2528,10 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
     Expression<String>? assignedAgentName,
     Expression<int>? assignedAgentId,
     Expression<String>? ticketStatus,
+    Expression<DateTime>? lastCallAt,
+    Expression<String>? lastCallDirection,
+    Expression<String>? lastCallStatus,
+    Expression<String>? labels,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
   }) {
@@ -2398,6 +2553,10 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
       if (assignedAgentName != null) 'assigned_agent_name': assignedAgentName,
       if (assignedAgentId != null) 'assigned_agent_id': assignedAgentId,
       if (ticketStatus != null) 'ticket_status': ticketStatus,
+      if (lastCallAt != null) 'last_call_at': lastCallAt,
+      if (lastCallDirection != null) 'last_call_direction': lastCallDirection,
+      if (lastCallStatus != null) 'last_call_status': lastCallStatus,
+      if (labels != null) 'labels': labels,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
     });
@@ -2420,6 +2579,10 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
       Value<String?>? assignedAgentName,
       Value<int?>? assignedAgentId,
       Value<String?>? ticketStatus,
+      Value<DateTime?>? lastCallAt,
+      Value<String?>? lastCallDirection,
+      Value<String?>? lastCallStatus,
+      Value<String?>? labels,
       Value<DateTime>? createdAt,
       Value<DateTime?>? updatedAt}) {
     return ContactsCompanion(
@@ -2439,6 +2602,10 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
       assignedAgentName: assignedAgentName ?? this.assignedAgentName,
       assignedAgentId: assignedAgentId ?? this.assignedAgentId,
       ticketStatus: ticketStatus ?? this.ticketStatus,
+      lastCallAt: lastCallAt ?? this.lastCallAt,
+      lastCallDirection: lastCallDirection ?? this.lastCallDirection,
+      lastCallStatus: lastCallStatus ?? this.lastCallStatus,
+      labels: labels ?? this.labels,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -2496,6 +2663,18 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
     if (ticketStatus.present) {
       map['ticket_status'] = Variable<String>(ticketStatus.value);
     }
+    if (lastCallAt.present) {
+      map['last_call_at'] = Variable<DateTime>(lastCallAt.value);
+    }
+    if (lastCallDirection.present) {
+      map['last_call_direction'] = Variable<String>(lastCallDirection.value);
+    }
+    if (lastCallStatus.present) {
+      map['last_call_status'] = Variable<String>(lastCallStatus.value);
+    }
+    if (labels.present) {
+      map['labels'] = Variable<String>(labels.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -2524,6 +2703,10 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
           ..write('assignedAgentName: $assignedAgentName, ')
           ..write('assignedAgentId: $assignedAgentId, ')
           ..write('ticketStatus: $ticketStatus, ')
+          ..write('lastCallAt: $lastCallAt, ')
+          ..write('lastCallDirection: $lastCallDirection, ')
+          ..write('lastCallStatus: $lastCallStatus, ')
+          ..write('labels: $labels, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -4461,6 +4644,10 @@ typedef $$ContactsTableCreateCompanionBuilder = ContactsCompanion Function({
   Value<String?> assignedAgentName,
   Value<int?> assignedAgentId,
   Value<String?> ticketStatus,
+  Value<DateTime?> lastCallAt,
+  Value<String?> lastCallDirection,
+  Value<String?> lastCallStatus,
+  Value<String?> labels,
   Value<DateTime> createdAt,
   Value<DateTime?> updatedAt,
 });
@@ -4481,6 +4668,10 @@ typedef $$ContactsTableUpdateCompanionBuilder = ContactsCompanion Function({
   Value<String?> assignedAgentName,
   Value<int?> assignedAgentId,
   Value<String?> ticketStatus,
+  Value<DateTime?> lastCallAt,
+  Value<String?> lastCallDirection,
+  Value<String?> lastCallStatus,
+  Value<String?> labels,
   Value<DateTime> createdAt,
   Value<DateTime?> updatedAt,
 });
@@ -4546,6 +4737,20 @@ class $$ContactsTableFilterComposer
 
   ColumnFilters<String> get ticketStatus => $composableBuilder(
       column: $table.ticketStatus, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get lastCallAt => $composableBuilder(
+      column: $table.lastCallAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get lastCallDirection => $composableBuilder(
+      column: $table.lastCallDirection,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get lastCallStatus => $composableBuilder(
+      column: $table.lastCallStatus,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get labels => $composableBuilder(
+      column: $table.labels, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -4617,6 +4822,20 @@ class $$ContactsTableOrderingComposer
       column: $table.ticketStatus,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<DateTime> get lastCallAt => $composableBuilder(
+      column: $table.lastCallAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get lastCallDirection => $composableBuilder(
+      column: $table.lastCallDirection,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get lastCallStatus => $composableBuilder(
+      column: $table.lastCallStatus,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get labels => $composableBuilder(
+      column: $table.labels, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 
@@ -4681,6 +4900,18 @@ class $$ContactsTableAnnotationComposer
   GeneratedColumn<String> get ticketStatus => $composableBuilder(
       column: $table.ticketStatus, builder: (column) => column);
 
+  GeneratedColumn<DateTime> get lastCallAt => $composableBuilder(
+      column: $table.lastCallAt, builder: (column) => column);
+
+  GeneratedColumn<String> get lastCallDirection => $composableBuilder(
+      column: $table.lastCallDirection, builder: (column) => column);
+
+  GeneratedColumn<String> get lastCallStatus => $composableBuilder(
+      column: $table.lastCallStatus, builder: (column) => column);
+
+  GeneratedColumn<String> get labels =>
+      $composableBuilder(column: $table.labels, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -4727,6 +4958,10 @@ class $$ContactsTableTableManager extends RootTableManager<
             Value<String?> assignedAgentName = const Value.absent(),
             Value<int?> assignedAgentId = const Value.absent(),
             Value<String?> ticketStatus = const Value.absent(),
+            Value<DateTime?> lastCallAt = const Value.absent(),
+            Value<String?> lastCallDirection = const Value.absent(),
+            Value<String?> lastCallStatus = const Value.absent(),
+            Value<String?> labels = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> updatedAt = const Value.absent(),
           }) =>
@@ -4747,6 +4982,10 @@ class $$ContactsTableTableManager extends RootTableManager<
             assignedAgentName: assignedAgentName,
             assignedAgentId: assignedAgentId,
             ticketStatus: ticketStatus,
+            lastCallAt: lastCallAt,
+            lastCallDirection: lastCallDirection,
+            lastCallStatus: lastCallStatus,
+            labels: labels,
             createdAt: createdAt,
             updatedAt: updatedAt,
           ),
@@ -4767,6 +5006,10 @@ class $$ContactsTableTableManager extends RootTableManager<
             Value<String?> assignedAgentName = const Value.absent(),
             Value<int?> assignedAgentId = const Value.absent(),
             Value<String?> ticketStatus = const Value.absent(),
+            Value<DateTime?> lastCallAt = const Value.absent(),
+            Value<String?> lastCallDirection = const Value.absent(),
+            Value<String?> lastCallStatus = const Value.absent(),
+            Value<String?> labels = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> updatedAt = const Value.absent(),
           }) =>
@@ -4787,6 +5030,10 @@ class $$ContactsTableTableManager extends RootTableManager<
             assignedAgentName: assignedAgentName,
             assignedAgentId: assignedAgentId,
             ticketStatus: ticketStatus,
+            lastCallAt: lastCallAt,
+            lastCallDirection: lastCallDirection,
+            lastCallStatus: lastCallStatus,
+            labels: labels,
             createdAt: createdAt,
             updatedAt: updatedAt,
           ),

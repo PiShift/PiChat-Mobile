@@ -1,3 +1,4 @@
+import 'package:pichat/data/repositories/label_repository.dart';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
@@ -26,6 +27,27 @@ class Contact {
   final String? assignedAgentName;
   final int? assignedAgentId;
   final String? ticketStatus;
+
+  /// Most recent call on this conversation. The chat list previews whichever
+  /// of this and [lastChat] actually happened last.
+  final DateTime? lastCallAt;
+  final String? lastCallDirection;
+  final String? lastCallStatus;
+
+  /// Whether the payload this was built from actually carried ticket / call
+  /// data.
+  ///
+  /// Only the contacts list eager-loads those relations; `contactById` and
+  /// `newestChats` do not, and their payloads omit the keys entirely. Without
+  /// this distinction the model cannot tell "no call" from "not asked about",
+  /// and persisting the resulting null wiped the call preview off the chat list
+  /// the moment a thread was opened.
+  final bool hasTicketData;
+  final bool hasCallData;
+  final bool hasLabelData;
+
+  /// Labels on this conversation, ready to paint.
+  final List<Label> labels;
   final Chat? lastChat;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -48,6 +70,13 @@ class Contact {
     this.assignedAgentName,
     this.assignedAgentId,
     this.ticketStatus,
+    this.lastCallAt,
+    this.lastCallDirection,
+    this.lastCallStatus,
+    this.hasTicketData = false,
+    this.hasCallData = false,
+    this.hasLabelData = false,
+    this.labels = const [],
     this.lastChat,
     required this.createdAt,
     this.updatedAt,
@@ -88,6 +117,10 @@ class Contact {
     final rawTicket = json['ticket'];
     final ticket = rawTicket is Map ? Map<String, dynamic>.from(rawTicket) : null;
 
+    final rawCall = json['last_call'];
+    final lastCall =
+        rawCall is Map ? Map<String, dynamic>.from(rawCall) : null;
+
     return Contact(
       id: json['id'],
       uuid: json['uuid'],
@@ -106,6 +139,17 @@ class Contact {
       assignedAgentName: ticket?['agent_name'] as String?,
       assignedAgentId: ticket?['assigned_to'] as int?,
       ticketStatus: ticket?['status'] as String?,
+      lastCallAt: lastCall?['created_at'] != null
+          ? DateTime.tryParse(lastCall!['created_at'] as String)?.toLocal()
+          : null,
+      lastCallDirection: lastCall?['direction'] as String?,
+      lastCallStatus: lastCall?['status'] as String?,
+      hasTicketData: json.containsKey('ticket'),
+      hasCallData: json.containsKey('last_call'),
+      hasLabelData: json.containsKey('labels'),
+      labels: (json['labels'] as List<dynamic>? ?? const [])
+          .map((e) => Label.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
       lastChat: lastChat,
       createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
       updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
@@ -130,6 +174,7 @@ class Contact {
     'assigned_agent_name': assignedAgentName,
     'assigned_agent_id': assignedAgentId,
     'ticket_status': ticketStatus,
+    'last_call_at': lastCallAt?.toIso8601String(),
     'last_chat': lastChat,
     'created_at': createdAt.toIso8601String(),
     'updated_at': updatedAt?.toIso8601String(),
@@ -155,6 +200,13 @@ class Contact {
       assignedAgentName: row.assignedAgentName,
       assignedAgentId: row.assignedAgentId,
       ticketStatus: row.ticketStatus,
+      lastCallAt: row.lastCallAt,
+      lastCallDirection: row.lastCallDirection,
+      lastCallStatus: row.lastCallStatus,
+      hasTicketData: true,
+      hasCallData: true,
+      hasLabelData: true,
+      labels: _decodeLabels(row.labels),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     );
@@ -171,9 +223,21 @@ class Contact {
     phone: phone,
     formattedPhone: formattedPhone,
     latestChatCreatedAt: Value(latestChatCreatedAt),
-    assignedAgentName: Value(assignedAgentName),
-    assignedAgentId: Value(assignedAgentId),
-    ticketStatus: Value(ticketStatus),
+    // Absent, not null, when the payload did not carry the relation — an
+    // omitted field must never overwrite a stored one.
+    assignedAgentName:
+        hasTicketData ? Value(assignedAgentName) : const Value.absent(),
+    assignedAgentId:
+        hasTicketData ? Value(assignedAgentId) : const Value.absent(),
+    ticketStatus: hasTicketData ? Value(ticketStatus) : const Value.absent(),
+    lastCallAt: hasCallData ? Value(lastCallAt) : const Value.absent(),
+    lastCallDirection:
+        hasCallData ? Value(lastCallDirection) : const Value.absent(),
+    lastCallStatus:
+        hasCallData ? Value(lastCallStatus) : const Value.absent(),
+    labels: hasLabelData
+        ? Value(jsonEncode(labels.map((l) => l.toJson()).toList()))
+        : const Value.absent(),
     avatar: Value(avatar),
     unreadCount: Value(unreadCount),
     unreadMessages: Value(unreadMessages),
@@ -200,6 +264,13 @@ class Contact {
     DateTime? createdAt,
     DateTime? updatedAt,
     Chat? lastChat,
+    String? assignedAgentName,
+    int? assignedAgentId,
+    String? ticketStatus,
+    DateTime? lastCallAt,
+    String? lastCallDirection,
+    String? lastCallStatus,
+    List<Label>? labels,
   }) {
     return Contact(
       id: id ?? this.id,
@@ -219,7 +290,38 @@ class Contact {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       lastChat: lastChat ?? this.lastChat,
+      assignedAgentName: assignedAgentName ?? this.assignedAgentName,
+      assignedAgentId: assignedAgentId ?? this.assignedAgentId,
+      ticketStatus: ticketStatus ?? this.ticketStatus,
+      lastCallAt: lastCallAt ?? this.lastCallAt,
+      lastCallDirection: lastCallDirection ?? this.lastCallDirection,
+      lastCallStatus: lastCallStatus ?? this.lastCallStatus,
+      labels: labels ?? this.labels,
+      // Carried through too: a copy must not look like a payload that never
+      // mentioned tickets or calls, or persisting it would blank the columns.
+      hasTicketData: hasTicketData,
+      hasCallData: hasCallData,
+      hasLabelData: hasLabelData,
     );
   }
 
+}
+
+/// Reads the labels column, tolerating anything unexpected — a malformed row
+/// should cost the chips, not the whole conversation list.
+List<Label> _decodeLabels(String? raw) {
+  if (raw == null || raw.isEmpty) return const [];
+
+  try {
+    final decoded = jsonDecode(raw);
+
+    if (decoded is! List) return const [];
+
+    return decoded
+        .whereType<Map>()
+        .map((e) => Label.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  } catch (_) {
+    return const [];
+  }
 }

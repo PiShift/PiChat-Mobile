@@ -1,6 +1,10 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:pichat/core/utils/text_direction.dart';
+import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_theme.dart';
 import 'package:pichat/data/repositories/template_repository.dart';
@@ -204,7 +208,14 @@ class _TemplatesTabState extends ConsumerState<_TemplatesTab> {
               }).toList();
 
               if (filtered.isEmpty) {
-                return Center(child: Text('templates.empty.no_templates'.tr(), style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 13)));
+                return _EmptyState(
+                  icon: LucideIcons.fileText,
+                  title: 'templates.empty.no_templates'.tr(),
+                  // Templates are authored and approved on Meta's side, so an
+                  // agent finding none here has nothing to fix in the app.
+                  detail: 'Approved templates from your WhatsApp Business '
+                      'account appear here.',
+                );
               }
 
               return ListView.separated(
@@ -224,70 +235,97 @@ class _TemplatesTabState extends ConsumerState<_TemplatesTab> {
   }
 }
 
+/// One template in the management list.
+///
+/// Rebuilt as a card because the previous row was a 3px colour bar next to raw
+/// `TextStyle` sized in fractions of the screen — so it neither matched the
+/// app's typography nor held together at different text scales. The variables a
+/// template needs are surfaced here too: whether a template is usable at a
+/// glance depends on what it will ask you to fill in.
 class _TemplateListItem extends StatelessWidget {
   final Template template;
   const _TemplateListItem({required this.template});
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
+    final colors = PiColors.of(context);
     final categoryColor = _categoryColor(template.category);
 
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: size.height * 0.008),
-      child: Row(
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surfaceRaised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.divider),
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 3,
-            height: size.height * 0.07,
-            decoration: BoxDecoration(
-              color: categoryColor,
-              borderRadius: BorderRadius.circular(2),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  template.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: Sz.sp(context, 15),
+                    fontWeight: FontWeight.w700,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _Pill(
+                label: template.status.toUpperCase(),
+                color: _statusColor(template.status),
+              ),
+            ],
           ),
-          SizedBox(width: size.width * 0.03),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          if (template.preview.trim().isNotEmpty) ...[
+            const SizedBox(height: 7),
+            // The preview carries the customer's language, so it is laid out in
+            // that language's direction rather than the app's.
+            Directionality(
+              textDirection: directionOf(template.preview),
+              child: Text(
+                template.preview,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: Sz.sp(context, 13),
+                  height: 1.4,
+                  color: colors.textSecondary,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _Pill(label: template.category.toUpperCase(), color: categoryColor),
+              const SizedBox(width: 6),
+              _Pill(label: template.language.toUpperCase(), color: colors.textSecondary),
+              const Spacer(),
+              if (template.variables.isNotEmpty)
                 Row(
                   children: [
-                    Expanded(
-                      child: Text(
-                        template.name,
-                        style: TextStyle(fontSize: size.width * 0.035, fontWeight: FontWeight.w600, color: PiColors.of(context).textPrimary),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: size.width * 0.02, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: _statusColor(template.status).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        template.status.toUpperCase(),
-                        style: TextStyle(fontSize: size.width * 0.025, color: _statusColor(template.status), fontWeight: FontWeight.w700),
+                    Icon(LucideIcons.pencil, size: 11, color: colors.textSecondary),
+                    const SizedBox(width: 4),
+                    Text(
+                      template.variables.length == 1
+                          ? '1 field'
+                          : '${template.variables.length} fields',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: Sz.sp(context, 11),
+                        color: colors.textSecondary,
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: size.height * 0.003),
-                Text(
-                  template.preview,
-                  style: TextStyle(fontSize: size.width * 0.031, color: PiColors.of(context).textSecondary),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                SizedBox(height: size.height * 0.003),
-                Text(
-                  '${template.category} · ${template.language.toUpperCase()}',
-                  style: TextStyle(fontSize: size.width * 0.028, color: PiColors.of(context).ink400),
-                ),
-              ],
-            ),
+            ],
           ),
         ],
       ),
@@ -310,6 +348,34 @@ class _TemplateListItem extends StatelessWidget {
       case 'pending': return PiPalette.warning500;
       default: return PiPalette.ink400;
     }
+  }
+}
+
+/// Small tinted label used for status, category and language.
+class _Pill extends StatelessWidget {
+  const _Pill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: Sz.sp(context, 10),
+          fontWeight: FontWeight.w700,
+          color: color,
+          height: 1.2,
+        ),
+      ),
+    );
   }
 }
 
@@ -390,7 +456,12 @@ class _CannedRepliesTabState extends ConsumerState<_CannedRepliesTab> {
                         }).toList();
 
                   if (filtered.isEmpty) {
-                    return Center(child: Text('quick_replies.empty.no_replies'.tr(), style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 13)));
+                    return _EmptyState(
+                      icon: LucideIcons.zap,
+                      title: 'quick_replies.empty.no_replies'.tr(),
+                      detail: 'Save the answers you send most often, then type '
+                          '/ in any chat to drop one in.',
+                    );
                   }
 
                   return ListView.separated(
@@ -520,52 +591,89 @@ class _CannedRepliesTabState extends ConsumerState<_CannedRepliesTab> {
   }
 }
 
+/// One canned reply.
+///
+/// The shortcut leads, because that is what an agent types: `/hello` in the
+/// composer is the fast path, and the list should teach that shape rather than
+/// bury it. Destructive and edit actions sit at the end, sized as real touch
+/// targets — they were previously zero-padding icons a few pixels across.
 class _CannedReplyItem extends StatelessWidget {
   final CannedReplyData reply;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
-  const _CannedReplyItem({required this.reply, required this.onEdit, required this.onDelete});
+  const _CannedReplyItem({
+    required this.reply,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: size.height * 0.007),
+    final colors = PiColors.of(context);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+      decoration: BoxDecoration(
+        color: colors.surfaceRaised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.divider),
+      ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: size.width * 0.025, vertical: 3),
-            decoration: BoxDecoration(
-              color: PiPalette.primary500.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              reply.shortcut,
-              style: TextStyle(fontSize: size.width * 0.03, color: PiPalette.primary500, fontWeight: FontWeight.w600),
-            ),
-          ),
-          SizedBox(width: size.width * 0.03),
           Expanded(
-            child: Text(
-              reply.content,
-              style: TextStyle(fontSize: size.width * 0.032, color: PiColors.of(context).textSecondary),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: PiPalette.primary500.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '/${reply.shortcut}',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: Sz.sp(context, 12),
+                      fontWeight: FontWeight.w700,
+                      color: PiPalette.primary500,
+                      height: 1.2,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Canned replies are written in the customer's language, so
+                // Arabic content lays out right-to-left here as it will in the
+                // conversation.
+                Directionality(
+                  textDirection: directionOf(reply.content),
+                  child: Text(
+                    reply.content,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: Sz.sp(context, 13.5),
+                      height: 1.4,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           IconButton(
-            icon: Icon(Icons.edit_outlined, size: size.width * 0.043, color: PiColors.of(context).textSecondary),
+            tooltip: 'Edit',
+            icon: Icon(LucideIcons.pencil, size: 17, color: colors.textSecondary),
             onPressed: onEdit,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
           ),
-          SizedBox(width: size.width * 0.02),
           IconButton(
-            icon: Icon(Icons.delete_outline, size: size.width * 0.043, color: PiColors.of(context).error),
+            tooltip: 'Delete',
+            icon: Icon(LucideIcons.trash2, size: 17, color: PiPalette.error500),
             onPressed: onDelete,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
           ),
         ],
       ),
@@ -577,5 +685,66 @@ extension _StringExt on String {
   String capitalizeFirst() {
     if (isEmpty) return this;
     return '${this[0].toUpperCase()}${substring(1).toLowerCase()}';
+  }
+}
+
+/// Shown when a list has nothing in it.
+///
+/// A bare line of grey text left an agent unsure whether the screen had failed,
+/// was still loading, or genuinely had nothing — so each state says what
+/// belongs here and, where there is one, the action that fills it.
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.detail,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = PiColors.of(context);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: colors.surfaceRaised,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 24, color: colors.textSecondary),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: Sz.sp(context, 15),
+                fontWeight: FontWeight.w600,
+                color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              detail,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: Sz.sp(context, 13),
+                height: 1.45,
+                color: colors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

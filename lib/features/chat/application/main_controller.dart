@@ -3,16 +3,25 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/models/chat_model.dart';
+import 'package:pichat/data/repositories/label_repository.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/data/repositories/chat_repository.dart';
 import 'package:pichat/data/repositories/contact_repository.dart';
 
 
+/// True while the contact list is being re-read from the server.
+///
+/// The list is offline-first, so a warm start shows the cached conversations
+/// immediately and quietly replaces them when the fetch lands. Without a signal
+/// that is indistinguishable from "this is current" — an agent could act on a
+/// list that was minutes stale believing it was live.
+final contactsRefreshingProvider = StateProvider<bool>((ref) => false);
+
 final mainDataProvider = StateNotifierProvider<MainDataController, List<Contact>>((ref) {
   final contactRepo = ref.watch(contactRepositoryProvider);
   final chatRepo = ref.watch(chatRepositoryProvider);
   final db = ref.watch(appDatabaseProvider);
-  return MainDataController(contactRepo, chatRepo, db);
+  return MainDataController(contactRepo, chatRepo, db, ref);
 });
 
 class MainDataController extends StateNotifier<List<Contact>> {
@@ -20,7 +29,12 @@ class MainDataController extends StateNotifier<List<Contact>> {
   final ChatRepository _chatRepo;
   final AppDatabase _db;
 
-  MainDataController(this._contactRepo, this._chatRepo, this._db) : super([]) {
+  /// Needed only to publish [contactsRefreshingProvider] so the list can show
+  /// that it is re-reading rather than silently swapping stale rows.
+  final Ref _ref;
+
+  MainDataController(this._contactRepo, this._chatRepo, this._db, this._ref)
+      : super([]) {
     _loadContacts();
   }
 
@@ -45,6 +59,8 @@ class MainDataController extends StateNotifier<List<Contact>> {
   /// Refresh contacts from API
   /// The API now returns contacts with last_message embedded, so NO need to loop!
   Future<void> refreshContacts() async {
+    _ref.read(contactsRefreshingProvider.notifier).state = true;
+
     try {
       final apiContacts = await _contactRepo.getContacts(
         page: 1,
@@ -59,6 +75,8 @@ class MainDataController extends StateNotifier<List<Contact>> {
       state = _sortedByRecency(apiContacts);
     } catch (e) {
       print('Error refreshing contacts: $e');
+    } finally {
+      _ref.read(contactsRefreshingProvider.notifier).state = false;
     }
   }
 
@@ -168,6 +186,59 @@ class MainDataController extends StateNotifier<List<Contact>> {
     } else {
       updated[0] = newContact;
     }
+
+    state = updated;
+  }
+
+  /// Apply a label change to the in-memory row.
+  ///
+  /// The list holds its own Contact copies, so a database write alone would not
+  /// repaint the row until the next fetch.
+  void applyLabels(int contactId, List<Label> labels) {
+    final updated = List<Contact>.from(state);
+    final index = updated.indexWhere((c) => c.id == contactId);
+
+    if (index == -1) return;
+
+    updated[index] = updated[index].copyWith(labels: labels);
+    state = updated;
+  }
+
+  /// Reflect a call on the conversation, without waiting for a refresh.
+  ///
+  /// Call events arrive over Reverb while the list is on screen, so the row
+  /// should change as the call does — ringing shows "Incoming call", and it
+  /// becomes "Missed call" the moment nobody takes it. Written to the database
+  /// as well so it survives leaving the screen.
+  Future<void> applyCallActivity({
+    required int contactId,
+    required DateTime at,
+    required String direction,
+    required String status,
+  }) async {
+    await _db.setContactCallActivity(
+      contactId: contactId,
+      at: at,
+      direction: direction,
+      status: status,
+    );
+
+    final updated = List<Contact>.from(state);
+    final index = updated.indexWhere((c) => c.id == contactId);
+
+    if (index == -1) return;
+
+    final patched = updated[index].copyWith(
+      lastCallAt: at,
+      lastCallDirection: direction,
+      lastCallStatus: status,
+      latestChatCreatedAt: at,
+    );
+
+    // A call is activity, so the conversation moves to the top the way a
+    // message would.
+    updated.removeAt(index);
+    updated.insert(0, patched);
 
     state = updated;
   }

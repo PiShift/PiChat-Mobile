@@ -8,6 +8,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -80,7 +81,23 @@ class _InCallScreenState extends ConsumerState<InCallScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const SizedBox(height: 40),
+            // Minimise: put the call screen away without touching the call, so
+            // the agent can read the customer's history or take a note while
+            // still talking. ActiveCallBanner keeps it one tap away.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                tooltip: 'Minimise',
+                icon: const Icon(LucideIcons.chevronDown,
+                    color: Colors.white70, size: 26),
+                onPressed: () {
+                  ref.read(callMinimisedProvider.notifier).state = true;
+
+                  if (context.canPop()) context.pop();
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
             Column(
               children: [
                 CircleAvatar(
