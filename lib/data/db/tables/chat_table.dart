@@ -13,6 +13,9 @@ class Chats extends Table {
   IntColumn get mediaId => integer().nullable()();
   TextColumn get status => text().withDefault(const Constant('pending'))(); // e.g., 'pending', 'sent', 'delivered', 'read'
   BoolColumn get isRead => boolean().withDefault(const Constant(false))();
+  /// True when the AI assistant sent this message rather than an agent, so the
+  /// thread can label it. Mirrors `chats.is_pibot` on the server.
+  BoolColumn get isPibot => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().clientDefault(() => DateTime.now())();
   DateTimeColumn get updatedAt => dateTime().nullable()();
   DateTimeColumn get deletedAt => dateTime().nullable()();

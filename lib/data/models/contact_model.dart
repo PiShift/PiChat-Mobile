@@ -19,6 +19,13 @@ class Contact {
   final int unreadCount;
   final int unreadMessages;
   late int? lastChatId;
+
+  /// Current ticket ownership, flattened from the server's `ticket` object so
+  /// the chat list can label a row and the thread header can name the owner
+  /// without a per-conversation lookup.
+  final String? assignedAgentName;
+  final int? assignedAgentId;
+  final String? ticketStatus;
   final Chat? lastChat;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -38,6 +45,9 @@ class Contact {
     required this.unreadCount,
     required this.unreadMessages,
     this.lastChatId,
+    this.assignedAgentName,
+    this.assignedAgentId,
+    this.ticketStatus,
     this.lastChat,
     required this.createdAt,
     this.updatedAt,
@@ -73,6 +83,11 @@ class Contact {
       lastInboundChatAt = DateTime.parse(json['last_inbound_chat_at']);
     }
 
+    // Only present when the server eager-loaded the relation; absent on
+    // endpoints that do not need ticket state.
+    final rawTicket = json['ticket'];
+    final ticket = rawTicket is Map ? Map<String, dynamic>.from(rawTicket) : null;
+
     return Contact(
       id: json['id'],
       uuid: json['uuid'],
@@ -88,6 +103,9 @@ class Contact {
       unreadCount: json['unread_count'] ?? 0,
       unreadMessages: json['unread_messages'] ?? json['unread_count'] ?? 0,
       lastChatId: lastChatId,
+      assignedAgentName: ticket?['agent_name'] as String?,
+      assignedAgentId: ticket?['assigned_to'] as int?,
+      ticketStatus: ticket?['status'] as String?,
       lastChat: lastChat,
       createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
       updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
@@ -109,6 +127,9 @@ class Contact {
     'unread_count': unreadCount,
     'unread_messages': unreadMessages,
     'last_chat_id': lastChatId,
+    'assigned_agent_name': assignedAgentName,
+    'assigned_agent_id': assignedAgentId,
+    'ticket_status': ticketStatus,
     'last_chat': lastChat,
     'created_at': createdAt.toIso8601String(),
     'updated_at': updatedAt?.toIso8601String(),
@@ -131,6 +152,9 @@ class Contact {
       unreadCount: row.unreadCount,
       unreadMessages: row.unreadMessages,
       lastChatId: row.lastChatId,
+      assignedAgentName: row.assignedAgentName,
+      assignedAgentId: row.assignedAgentId,
+      ticketStatus: row.ticketStatus,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     );
@@ -147,6 +171,9 @@ class Contact {
     phone: phone,
     formattedPhone: formattedPhone,
     latestChatCreatedAt: Value(latestChatCreatedAt),
+    assignedAgentName: Value(assignedAgentName),
+    assignedAgentId: Value(assignedAgentId),
+    ticketStatus: Value(ticketStatus),
     avatar: Value(avatar),
     unreadCount: Value(unreadCount),
     unreadMessages: Value(unreadMessages),

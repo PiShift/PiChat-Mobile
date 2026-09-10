@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/models/chat_model.dart';
+import 'package:pichat/data/models/contact_model.dart';
+import 'package:pichat/data/models/timeline_event_model.dart';
 import 'package:pichat/data/repositories/chat_repository.dart';
 
 /// Provider for messages of a specific contact (on-demand loading)
@@ -22,6 +24,34 @@ StreamProvider.family<List<Chat>, int>((ref, int contactId) {
     // Filter out null values and return
     return chatsWithRelations.whereType<Chat>().toList();
   });
+});
+
+/// Non-message entries for a conversation — calls, ticket changes and notes —
+/// ordered oldest first, matching the message stream.
+///
+/// Kept separate from [messagesProvider] rather than merged into one list: the
+/// thread's scroll positioning is indexed on messages, so events are rendered
+/// anchored to the message they follow instead of occupying list slots of their
+/// own.
+final timelineEventsProvider =
+    StreamProvider.family<List<TimelineEvent>, int>((ref, int contactId) {
+  final db = ref.watch(appDatabaseProvider);
+
+  return db.watchTimelineEventsForContact(contactId);
+});
+
+/// Live view of one contact from the local database.
+///
+/// The thread is handed a Contact when it opens, but ticket ownership changes
+/// while it is on screen — assigning the conversation to yourself should update
+/// the header immediately rather than after the next list refresh.
+final contactByIdProvider =
+    StreamProvider.family<Contact?, int>((ref, int contactId) {
+  final db = ref.watch(appDatabaseProvider);
+
+  return (db.select(db.contacts)..where((t) => t.id.equals(contactId)))
+      .watchSingleOrNull()
+      .map((row) => row == null ? null : Contact.fromDb(row));
 });
 
 /// Provider for total unread count (for app badge)

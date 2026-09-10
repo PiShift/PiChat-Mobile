@@ -2,13 +2,20 @@ import 'dart:io';
 import 'package:audio_session/audio_session.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:pichat/core/services/notification_sound_service.dart';
-import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/features/calls/application/call_fcm_handler.dart';
+import 'package:pichat/features/calls/data/call_api.dart';
+
+/// Set when the user taps a message notification, holding the contact uuid to
+/// open. Screens watch this so a tap works whether the app was killed or just
+/// backgrounded; whoever handles it clears it back to null.
+final pendingChatNavigationProvider = StateProvider<String?>((ref) => null);
 
 /// FCM Push Notification Service for handling incoming notifications
 class NotificationService {
@@ -97,6 +104,11 @@ class NotificationService {
       if (_dio != null) {
         registerTokenWithBackend(_dio!);
       }
+      // Calling presence keeps its own copy of the token (AgentCallStatus is
+      // what CallRouterService reads to wake this phone for an incoming
+      // call), so a refresh has to reach that table too — otherwise the
+      // number rings on WhatsApp and nothing happens here.
+      registerCallingDevice();
     });
 
     // Handle foreground messages
@@ -193,16 +205,87 @@ class NotificationService {
 
     try {
       final deviceType = Platform.isIOS ? 'ios' : 'android';
+
+      // Re-send the chosen sound on every registration. The server keeps it on
+      // the `user_devices` row, which is keyed by FCM token — so a reinstall or
+      // a token rotation creates a fresh row and the selection was silently
+      // lost, leaving background notifications on the default beep until the
+      // user happened to open Settings and pick the sound again.
+      final soundService = NotificationSoundService();
+      final selected = soundService.findById(await soundService.getSelectedId());
+
       // Must be Map<String, dynamic> to allow interceptor to add organization_id (int)
       final Map<String, dynamic> data = {
         'fcm_token': _fcmToken,
         'device_type': deviceType,
+        if (selected?.iosSoundFile != null)
+          'notification_sound': selected!.iosSoundFile,
       };
       await dio.post('/notifications/register-device', data: data);
-      print('NotificationService: Token registered with backend');
+      print('NotificationService: Token registered with backend '
+          '(sound ${selected?.iosSoundFile ?? 'default'})');
     } catch (e) {
       print('NotificationService: Failed to register token: $e');
     }
+  }
+
+  /// Push the current FCM token into the calling presence table so the
+  /// backend can wake this device for an incoming WhatsApp call.
+  ///
+  /// Safe to call repeatedly; a null token is skipped rather than sent,
+  /// because the backend keeps the token it already has when the field is
+  /// absent.
+  Future<void> registerCallingDevice({String status = 'available'}) async {
+    final container = _container;
+    if (container == null) return;
+
+    // iOS needs a second credential. An ordinary push cannot launch a killed
+    // app and background pushes are throttled, so an incoming call has to
+    // arrive as a PushKit VoIP push — and FCM cannot deliver those. The token
+    // is captured natively in AppDelegate and handed to
+    // flutter_callkit_incoming, which is where we read it back from.
+    final voipToken = Platform.isIOS ? await _voipToken() : null;
+
+    try {
+      await container.read(callApiProvider).updateAgentStatus(
+            status: status,
+            deviceToken: _fcmToken,
+            devicePlatform: Platform.isIOS ? 'ios' : 'android',
+            voipToken: voipToken,
+          );
+      print('NotificationService: calling presence updated '
+          '(fcm ${_fcmToken == null ? 'missing' : 'present'}'
+          '${Platform.isIOS ? ', voip ${voipToken == null || voipToken.isEmpty ? 'missing' : 'present'}' : ''})');
+    } catch (e) {
+      print('NotificationService: calling presence update failed: $e');
+    }
+  }
+
+  /// The PushKit token is registered asynchronously by iOS, so on a cold start
+  /// it can still be empty when presence is first sent. Poll briefly rather
+  /// than give up — a missing token means the phone cannot be rung at all
+  /// while the app is closed. Presence is re-sent on resume regardless.
+  Future<String?> _voipToken({
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final token = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
+
+        if (token is String && token.isNotEmpty) return token;
+      } catch (e) {
+        print('NotificationService: VoIP token read failed: $e');
+        return null;
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+
+    print('NotificationService: no VoIP token after ${timeout.inSeconds}s');
+
+    return null;
   }
 
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
@@ -218,7 +301,7 @@ class NotificationService {
     // play the notification sound so the user hears the alert while the app
     // is open — no banner is shown (that would duplicate Reverb's in-app banner).
     if (message.data['type'] == 'new_message') {
-      await _playForegroundSound();
+      await playMessageSound();
       return;
     }
 
@@ -258,6 +341,26 @@ class NotificationService {
 
   /// Plays the user's chosen notification sound while the app is in the
   /// foreground (no banner — Reverb already shows the in-app UI).
+  DateTime? _lastSoundPlayedAt;
+
+  /// Play the incoming-message tone while the app is open.
+  ///
+  /// Both the websocket and the FCM push can announce the same message, and
+  /// which arrives first is not predictable, so calls are collapsed inside a
+  /// short window to avoid a double beep.
+  Future<void> playMessageSound() async {
+    final now = DateTime.now();
+    final last = _lastSoundPlayedAt;
+
+    if (last != null && now.difference(last) < const Duration(milliseconds: 1500)) {
+      return;
+    }
+
+    _lastSoundPlayedAt = now;
+
+    await _playForegroundSound();
+  }
+
   Future<void> _playForegroundSound() async {
     try {
       final soundService = NotificationSoundService();
@@ -293,17 +396,33 @@ class NotificationService {
 
   void _handleNotificationTap(RemoteMessage message) {
     print('NotificationService: Notification tapped: ${message.messageId}');
-    
-    final contactUuid = message.data['contact_uuid'];
-    if (contactUuid != null) {
-      _pendingNavigation = contactUuid;
-    }
+
+    _publishTap(message.data['contact_uuid'] as String?);
   }
 
   void _onLocalNotificationTap(NotificationResponse response) {
-    final contactUuid = response.payload;
-    if (contactUuid != null) {
-      _pendingNavigation = contactUuid;
+    _publishTap(response.payload);
+  }
+
+  /// Records a notification tap for the UI to act on.
+  ///
+  /// Stored in BOTH places on purpose. The provider is what a screen that is
+  /// already mounted reacts to — tapping a notification while the app is
+  /// merely backgrounded used to set the field below and nothing more, because
+  /// the only reader ran in HomeScreen.initState and had long since finished,
+  /// so the app just came to the foreground on the same screen. The field
+  /// remains for the cold-start case, where the tap is delivered by
+  /// getInitialMessage() before any widget exists to listen.
+  void _publishTap(String? contactUuid) {
+    if (contactUuid == null || contactUuid.isEmpty) return;
+
+    _pendingNavigation = contactUuid;
+
+    try {
+      _container?.read(pendingChatNavigationProvider.notifier).state =
+          contactUuid;
+    } catch (e) {
+      print('NotificationService: could not publish tap: $e');
     }
   }
 

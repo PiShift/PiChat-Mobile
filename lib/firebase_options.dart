@@ -59,10 +59,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyASvHJIbCqNLDpf-G1VAAs7w4wIXNdwbB8',
-    appId: '1:886312135212:ios:05cc4be12eded8e5d9bf89',
+    appId: '1:886312135212:ios:2bb8a6ce98236e7cd9bf89',
     messagingSenderId: '886312135212',
     projectId: 'pichat-io',
     storageBucket: 'pichat-io.firebasestorage.app',
-    iosBundleId: 'com.pishift.pichat',
+    iosBundleId: 'com.pishift.pichatapp',
   );
+
 }

@@ -145,6 +145,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           .read(authControllerProvider.notifier)
                           .login(_emailCtrl.text, _passwordCtrl.text);
 
+                      // A successful login redirects away from this screen, so
+                      // by the time login() returns this State is usually
+                      // already disposed. Only the failure path still has a
+                      // widget to update.
+                      if (!mounted) return;
+
                       setState(() => loading = false);
                     }
                   },

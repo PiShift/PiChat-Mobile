@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/data/models/chat_model.dart';
+import 'package:pichat/features/chat/application/local_media_manager.dart';
+import 'package:pichat/features/chat/widgets/video_preview.dart';
 import 'package:pichat/data/models/chat_media_model.dart';
 import 'package:pichat/data/repositories/chat_repository.dart';
 import 'package:pichat/data/repositories/contact_repository.dart';
@@ -19,6 +21,8 @@ import 'package:pichat/features/chat/widgets/image_preview.dart';
 import 'audio_preview.dart';
 import 'document_preview.dart';
 import 'package:pichat/core/theme/app_colors.dart';
+import 'package:pichat/core/utils/text_direction.dart';
+import 'package:pichat/core/utils/whatsapp_text.dart';
 import 'package:pichat/core/theme/app_radius.dart';
 import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -53,7 +57,8 @@ class ChatMessageItem extends ConsumerWidget {
   bool get isFailed => message.status == 'failed';
 
   Widget _buildMediaPreview(BuildContext context, String mediaType) {
-    final localPath = metadata['_localFilePath'] as String?;
+    final localPath =
+        LocalMediaManager.resolve(metadata['_localFilePath'] as String?);
 
     switch (mediaType) {
       case 'image':
@@ -63,7 +68,7 @@ class ChatMessageItem extends ConsumerWidget {
             onTap: () => _showLocalFullScreen(context, localPath),
             child: Image.file(
               File(localPath),
-              width: double.infinity,
+              width: mediaMaxWidth,
               height: mediaMaxHeight,
               fit: BoxFit.cover,
               errorBuilder: (ctx, __, ___) => _buildMediaErrorBox(ctx),
@@ -109,6 +114,28 @@ class ChatMessageItem extends ConsumerWidget {
           localFilePath: localPath,
         );
 
+      case 'video':
+        // Videos used to fall through to the generic document row below, so a
+        // clip arrived as a file name with no poster frame and no way to play
+        // it in place.
+        if (message.media == null && localPath == null) {
+          return const SizedBox.shrink();
+        }
+
+        return VideoPreview(
+          media: message.media ??
+              ChatMedia(
+                id: -message.id,
+                path: localPath,
+                location: 'local',
+                type: 'video/mp4',
+              ),
+          mediaId: message.media?.id.toString() ?? 'local-${message.id}',
+          contactId: message.contactId.toString(),
+          metaId: message.media?.metaId,
+          localFilePath: localPath,
+        );
+
       case 'pdf':
       case 'doc':
       case 'docx':
@@ -151,7 +178,8 @@ class ChatMessageItem extends ConsumerWidget {
 
   Widget _buildMediaErrorBox(BuildContext context) {
     return Container(
-      width: double.infinity,
+      // A finite width so the bubble's IntrinsicWidth can measure it.
+      width: mediaMaxWidth,
       height: mediaMaxHeight,
       color: PiColors.of(context).surface,
       child: Center(child: Icon(Icons.broken_image, size: 48, color: PiColors.of(context).ink400)),
@@ -532,11 +560,15 @@ class ChatMessageItem extends ConsumerWidget {
   }
 
   /// Status tick row shown below outbound messages that have been delivered.
-  Widget _buildStatusTick(BuildContext context) {
+  Widget _buildStatusTick(BuildContext context, {bool onDark = false}) {
     if (message.type != 'outbound') return const SizedBox.shrink();
     if (isFailed) return const SizedBox.shrink();
     if (isPending) {
-      return Icon(LucideIcons.clock, size: 11, color: PiColors.of(context).textSecondary);
+      return Icon(
+        LucideIcons.clock,
+        size: 11,
+        color: onDark ? PiPalette.white : PiColors.of(context).textSecondary,
+      );
     }
 
     IconData icon;
@@ -556,6 +588,12 @@ class ChatMessageItem extends ConsumerWidget {
         color = PiColors.of(context).ink400;
     }
 
+    // Read receipts keep their blue on a scrim; the rest go white so they stay
+    // legible over a photo or a video frame.
+    if (onDark && message.status != 'read') {
+      color = PiPalette.white;
+    }
+
     return Icon(icon, size: 13, color: color);
   }
 
@@ -571,7 +609,8 @@ class ChatMessageItem extends ConsumerWidget {
     final chatRepo = ref.read(chatRepositoryProvider);
     final org = ref.read(organizationProvider);
     final orgId = org?.id ?? 0;
-    final localPath = metadata['_localFilePath'] as String?;
+    final localPath =
+        LocalMediaManager.resolve(metadata['_localFilePath'] as String?);
     final type = metadata['type'] ?? 'text';
     final mediaMime = message.media?.type ?? '';
     final isMediaMessage = localPath != null ||
@@ -645,6 +684,36 @@ class ChatMessageItem extends ConsumerWidget {
     final displayText = hasMedia ? caption : body;
     final standaloneBody = (!hasMedia && body != null && displayText == null) ? body : null;
     final mainText = displayText?.isNotEmpty == true ? displayText : standaloneBody;
+
+    /*
+     * A bubble carrying nothing but text sizes itself to that text instead of
+     * stretching to the 75% maximum, so "Ok" no longer occupies the same width
+     * as a paragraph. Media, location, contact cards and button bubbles keep
+     * the full width, which is what their fixed-size previews want.
+     */
+    /*
+     * A media bubble with no caption puts its timestamp over the media rather
+     * than on a strip beneath it. The strip read as a stray white band under
+     * the video and PDF cards.
+     */
+    // Only visual media floats its timestamp. A document card has its own white
+    // information row, and a floating pill just landed on top of it.
+    const floatingTypes = {'image', 'video', 'sticker'};
+
+    final isBareMedia = type != 'unsupported' &&
+        (floatingTypes.contains(type) || isLocation) &&
+        (hasMedia || isLocation) &&
+        header == null &&
+        (displayText?.isEmpty ?? true) &&
+        (standaloneBody?.isEmpty ?? true) &&
+        (buttons as List).isEmpty;
+
+    final isTextOnly = type != 'unsupported' &&
+        !hasMedia &&
+        !isLocation &&
+        !isContacts &&
+        (buttons as List).isEmpty &&
+        mainText != null;
 
     final footer = _buildFooter(context);
 
@@ -725,10 +794,67 @@ class ChatMessageItem extends ConsumerWidget {
                       if (type != 'unsupported' && hasMedia) _buildMediaPreview(context, type),
                       if (type != 'unsupported' && isLocation) _buildLocationPreview(context),
                       if (type != 'unsupported' && isContacts) _buildContactsPreview(context, ref),
-                      if (header != null || mainText != null)
+                      if (isTextOnly)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 6, 10, 5),
+                          /*
+                           * Wrap shrink-wraps to its widest run, so the bubble
+                           * follows the text. It also puts the timestamp on the
+                           * same line when there is room and drops it to its own
+                           * line when there is not - the behaviour WhatsApp has.
+                           *
+                           * Deliberately not IntrinsicWidth: measuring intrinsics
+                           * inside ScrollablePositionedList collapsed every
+                           * bubble to nothing.
+                           */
+                          // Lay the text out in its own direction. The bubble
+                          // itself stays on the sender's side — that is decided
+                          // by inbound/outbound, not by the language — so the
+                          // Directionality is scoped to the content only.
+                          child: Directionality(
+                            textDirection: directionOf(mainText),
+                            child: Wrap(
+                            alignment: WrapAlignment.end,
+                            crossAxisAlignment: WrapCrossAlignment.end,
+                            spacing: 8,
+                            runSpacing: 2,
+                            children: [
+                              if (header != null)
+                                Text(
+                                  header,
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: Sz.sp(context, 14),
+                                    fontWeight: FontWeight.w700,
+                                    color: PiColors.of(context).textPrimary,
+                                  ),
+                                ),
+                              Text.rich(
+                                TextSpan(
+                                  children: WhatsappText.spans(
+                                    mainText,
+                                    base: GoogleFonts.plusJakartaSans(
+                                      fontSize: Sz.sp(context, 14),
+                                      color: PiColors.of(context).textPrimary,
+                                      height: 1.4,
+                                    ),
+                                    linkColor: PiPalette.primary500,
+                                  ),
+                                ),
+                                textAlign: TextAlign.start,
+                              ),
+                              footer,
+                            ],
+                          ),
+                          ),
+                        ),
+                      if (!isTextOnly && (header != null || mainText != null))
                         Padding(
                           padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
-                          child: Column(
+                          // Captions and long-form bodies follow the language
+                          // of the text, same as the text-only bubble above.
+                          child: Directionality(
+                            textDirection: directionOf(mainText ?? header),
+                            child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               if (header != null)
@@ -742,16 +868,22 @@ class ChatMessageItem extends ConsumerWidget {
                                   textAlign: TextAlign.start,
                                 ),
                               if (mainText != null)
-                                Text(
-                                  mainText,
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: Sz.sp(context, 14),
-                                    color: PiColors.of(context).textPrimary,
-                                    height: 1.4,
+                                Text.rich(
+                                  TextSpan(
+                                    children: WhatsappText.spans(
+                                      mainText,
+                                      base: GoogleFonts.plusJakartaSans(
+                                        fontSize: Sz.sp(context, 14),
+                                        color: PiColors.of(context).textPrimary,
+                                        height: 1.4,
+                                      ),
+                                      linkColor: PiPalette.primary500,
+                                    ),
                                   ),
                                   textAlign: TextAlign.start,
                                 ),
                             ],
+                          ),
                           ),
                         ),
                       if (buttons.isNotEmpty)
@@ -782,20 +914,41 @@ class ChatMessageItem extends ConsumerWidget {
                             ),
                           ),
                         ),
-                      // Footer (time + tick) sits on its own row at the
-                      // bottom-end of the bubble (right in LTR, left in RTL).
-                      Padding(
-                        padding: const EdgeInsetsDirectional.fromSTEB(8, 0, 8, 4),
-                        child: Align(
-                          alignment: AlignmentDirectional.centerEnd,
-                          child: footer,
+                      // Footer (time + tick) on its own row at the bottom-end
+                      // of the bubble. Text-only bubbles carry it inline in the
+                      // Wrap above instead.
+                      if (!isTextOnly && !isBareMedia)
+                        Padding(
+                          padding:
+                              const EdgeInsetsDirectional.fromSTEB(8, 0, 8, 4),
+                          child: Align(
+                            alignment: AlignmentDirectional.centerEnd,
+                            child: footer,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
               ),
               ),
+              // Timestamp floated over the media, on a scrim so it stays
+              // readable against a bright frame or a white page.
+              if (isBareMedia)
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: PiPalette.ink900.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: _buildFooter(context, onDark: true),
+                  ),
+                ),
               // Status overlay (spinner / error+retry) for outbound pending/failed
               if (!isInbound) _buildStatusOverlay(context, ref),
               // Floating reaction pill — overlaps the bubble's bottom edge
@@ -871,23 +1024,39 @@ class ChatMessageItem extends ConsumerWidget {
 
   /// Time + status tick. Sits inside the bubble, bottom-right, in normal
   /// (non-overlapping) flow — so it never covers text, captions, or media.
-  Widget _buildFooter(BuildContext context) {
+  /// [onDark] renders the time and tick in white, for the badge that floats
+  /// over media. The colour has to be set here rather than inherited: the Text
+  /// below names its own colour, which silently won over any DefaultTextStyle
+  /// wrapped around it and left the time invisible on the scrim.
+  Widget _buildFooter(BuildContext context, {bool onDark = false}) {
     final isInbound = message.type == 'inbound';
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        // Mark replies the AI assistant sent. Without it an agent reading back
+        // through a thread cannot tell which outbound messages they are
+        // accountable for and which the bot wrote on their behalf.
+        if (message.isPibot) ...[
+          Icon(
+            LucideIcons.sparkles,
+            size: Sz.sp(context, 10),
+            color:
+                onDark ? PiPalette.white : PiColors.of(context).textSecondary,
+          ),
+          const SizedBox(width: 3),
+        ],
         Text(
           _formatTime(message.createdAt),
           style: GoogleFonts.plusJakartaSans(
             fontSize: Sz.sp(context, 10),
-            color: PiColors.of(context).textSecondary,
+            color: onDark ? PiPalette.white : PiColors.of(context).textSecondary,
           ),
         ),
         if (!isInbound)
           Padding(
             padding: const EdgeInsets.only(left: 3),
-            child: _buildStatusTick(context),
+            child: _buildStatusTick(context, onDark: onDark),
           ),
       ],
     );

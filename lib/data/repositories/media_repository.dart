@@ -26,14 +26,17 @@ class MediaRepository {
     String? metaUrl,
     required String mediaType,
     required String accessToken,
+    String? mimeType,
   }) async {
     // Check if already downloaded on disk
     if (await _localManager.exists(
       contactId: contactId,
       mediaId: mediaId,
       mediaType: mediaType,
+      mimeType: mimeType,
     )) {
-      final localPath = await _getLocalPath(contactId, mediaId, mediaType);
+      final localPath =
+          await _getLocalPath(contactId, mediaId, mediaType, mimeType);
       // Always sync location to DB — guards against the row being overwritten
       // by a server fetch after the file was saved (e.g. location reset to null).
       await _db.updateMediaPath(mediaId, localPath);
@@ -61,7 +64,8 @@ class MediaRepository {
       contactId: contactId,
       mediaId: mediaId,
       mediaType: mediaType,
-      bytes: bytes
+      mimeType: mimeType,
+      bytes: bytes,
     );
 
     // Update database
@@ -70,13 +74,19 @@ class MediaRepository {
     return localPath;
   }
 
+  /// The stored (relative) path for a file already on disk.
   Future<String> _getLocalPath(
     String contactId,
     String mediaId,
-    String mediaType,
-  ) async {
-    final path = await _localManager.getMediaPath(contactId, mediaType);
-    return '$path/$mediaId${_localManager.getExtensionFromMimeType(mediaType)}';
+    String mediaType, [
+    String? mimeType,
+  ]) async {
+    return LocalMediaManager.relativePath(
+      contactId: contactId,
+      mediaType: mediaType,
+      fileName:
+          '$mediaId${_localManager.getExtensionFromMimeType(mimeType ?? mediaType)}',
+    );
   }
 
   /// Extracts the `mid` query parameter from a Meta CDN URL.

@@ -10,6 +10,7 @@ import 'package:pichat/core/network/dio_provider.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/models/chat_model.dart';
+import 'package:pichat/data/models/timeline_event_model.dart';
 
 /// Thrown when the server rejects a plain text message because the
 /// 24-hour WhatsApp messaging window has expired.
@@ -79,15 +80,28 @@ class ChatRepository {
 
     final data = response.data['messages'] as List;
     final messages = <Chat>[];
+    final events = <TimelineEvent>[];
 
     for (var page in data) {
       for (var item in page) {
-        if (item['type'] == 'chat') {
-          messages.add(Chat.fromJson(item['value']));
+        if (item is! Map) continue;
+
+        final entry = Map<String, dynamic>.from(item);
+
+        if (entry['type'] == 'chat') {
+          messages.add(Chat.fromJson(entry['value']));
+          continue;
         }
-        // handle tickets or notes here if needed
+
+        // Ticket changes, notes and calls. These used to be discarded, which
+        // is why a conversation showed no sign of a call having happened or of
+        // being assigned to someone.
+        final event = TimelineEvent.fromApi(entry, contactId);
+        if (event != null) events.add(event);
       }
     }
+
+    await _db.upsertTimelineEvents(events);
 
     if (messages.isNotEmpty) {
       await _db.transaction(() async {
@@ -548,6 +562,35 @@ class ChatRepository {
     }
 
     // 2) Schedule a sync (debounced with maxDelay)
+    _scheduleSync();
+  }
+
+  /// Mark every inbound message in a conversation as read.
+  ///
+  /// Called when the reader leaves the thread: they have moved past the whole
+  /// conversation, so anything they scrolled by - not just what happened to be
+  /// on screen - should stop showing as unread.
+  Future<void> markConversationRead(int contactId) async {
+    final unread = await (_db.select(_db.chats)
+          ..where((t) =>
+              t.contactId.equals(contactId) &
+              t.type.equals('inbound') &
+              t.isRead.equals(false)))
+        .get();
+
+    if (unread.isEmpty) return;
+
+    await (_db.update(_db.chats)
+          ..where((t) =>
+              t.contactId.equals(contactId) &
+              t.type.equals('inbound') &
+              t.isRead.equals(false)))
+        .write(const ChatsCompanion(isRead: Value(true)));
+
+    for (final row in unread) {
+      _pendingReadIds.add(row.id);
+    }
+
     _scheduleSync();
   }
 

@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.pishift.pichat</string>
+	<string>com.pishift.pichatapp</string>
 	<key>PROJECT_ID</key>
 	<string>pichat-io</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:886312135212:ios:05cc4be12eded8e5d9bf89</string>
+	<string>1:886312135212:ios:2bb8a6ce98236e7cd9bf89</string>
 </dict>
 </plist>

@@ -8,10 +8,12 @@ import 'package:pichat/data/models/chat_log_model.dart';
 import 'package:pichat/data/models/chat_media_model.dart';
 import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/data/models/contact_model.dart';
+import 'package:pichat/data/models/timeline_event_model.dart';
 import 'package:pichat/data/models/organization_model.dart';
 import 'package:pichat/data/models/user_model.dart';
 
 // Import tables
+import 'tables/timeline_event_table.dart';
 import 'tables/user_table.dart';
 import 'tables/organization_table.dart';
 import 'tables/chat_table.dart';
@@ -20,13 +22,13 @@ import 'tables/contact_table.dart';
 part 'app_database.g.dart';
 
 @DriftDatabase(
-  tables: [Users, Organizations, UserOrganizations, Chats, Contacts, Medias, ChatLogs],
+  tables: [Users, Organizations, UserOrganizations, Chats, Contacts, Medias, ChatLogs, TimelineEvents],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -34,6 +36,15 @@ class AppDatabase extends _$AppDatabase {
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         await m.addColumn(medias, medias.metaId);
+      }
+      if (from < 3) {
+        // Calls, ticket changes and notes now render in the thread alongside
+        // messages, and a message needs to say whether the AI assistant sent it.
+        await m.createTable(timelineEvents);
+        await m.addColumn(chats, chats.isPibot);
+        await m.addColumn(contacts, contacts.assignedAgentName);
+        await m.addColumn(contacts, contacts.assignedAgentId);
+        await m.addColumn(contacts, contacts.ticketStatus);
       }
     },
   );
@@ -274,6 +285,63 @@ extension ChatsUpdate on AppDatabase {
   }
 
   /// Delete a chat row by id (used to remove failed optimistic messages on retry).
+  /// Records who a conversation is assigned to.
+  ///
+  /// Written straight after the API accepts an assignment so the thread header
+  /// and the chat list reflect it at once; the authoritative value still
+  /// arrives with the next contacts fetch.
+  Future<int> setContactAssignment({
+    required int contactId,
+    required int? agentId,
+    required String? agentName,
+  }) {
+    return (update(contacts)..where((t) => t.id.equals(contactId))).write(
+      ContactsCompanion(
+        assignedAgentId: Value(agentId),
+        assignedAgentName: Value(agentName),
+      ),
+    );
+  }
+
+  /// -----------------------
+  /// TIMELINE EVENTS (calls, ticket changes, notes)
+  /// -----------------------
+
+  /// Upserts a page of events. `insertAllOnConflictUpdate` keyed on the log id
+  /// makes re-fetching a page idempotent.
+  Future<void> upsertTimelineEvents(List<TimelineEvent> events) async {
+    if (events.isEmpty) return;
+
+    await batch((b) {
+      b.insertAllOnConflictUpdate(
+        timelineEvents,
+        events.map((e) => e.toCompanion()).toList(),
+      );
+    });
+  }
+
+  Future<List<TimelineEvent>> getTimelineEventsForContact(int contactId) async {
+    final rows = await (select(timelineEvents)
+          ..where((t) => t.contactId.equals(contactId))
+          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+        .get();
+
+    return rows.map(TimelineEvent.fromDb).toList();
+  }
+
+  Stream<List<TimelineEvent>> watchTimelineEventsForContact(int contactId) {
+    return (select(timelineEvents)
+          ..where((t) => t.contactId.equals(contactId))
+          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+        .watch()
+        .map((rows) => rows.map(TimelineEvent.fromDb).toList());
+  }
+
+  Future<int> clearTimelineEventsForContact(int contactId) {
+    return (delete(timelineEvents)..where((t) => t.contactId.equals(contactId)))
+        .go();
+  }
+
   Future<int> deleteChat(int chatId) {
     return (delete(chats)..where((c) => c.id.equals(chatId))).go();
   }

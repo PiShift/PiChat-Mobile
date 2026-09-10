@@ -10,6 +10,10 @@ plugins {
 
 android {
     namespace = "com.pishift.pichat"
+    // Was hardcoded to 37, which AGP 8.9.1 cannot resolve: there is no
+    // `platforms;android-37` package — API 37 ships only as 37.0/37.1/37.2,
+    // and the minor-version scheme needs a much newer AGP. Flutter 3.44.4
+    // targets 36, which is what is installed.
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 

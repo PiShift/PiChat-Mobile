@@ -35,7 +35,15 @@ class BaseInput extends StatelessWidget {
   final Color? borderColor;
   final String? Function(String)? validator;
 
-  InputDecoration getInputDecoration(String locale) {
+  InputDecoration getInputDecoration(BuildContext context, String locale) {
+    final scheme = Theme.of(context).colorScheme;
+    // The field used to be painted Colors.white regardless of theme, which
+    // left two glaring white blocks on the dark surface. The declared
+    // fillColor parameter was also ignored.
+    final resolvedFill = fillColor ?? scheme.surface;
+    // enabledBorder and focusedBorder were given the same colour, so a focused
+    // field looked identical to an idle one - every field read as "active".
+    final idleBorder = scheme.outlineVariant;
     if(forceLTR && locale == 'ar_EG') {
       return InputDecoration(
         border: OutlineInputBorder(
@@ -51,10 +59,10 @@ class BaseInput extends StatelessWidget {
           locale: Locale('en', 'US'),
         ),
         filled: true,
-        fillColor: Colors.white,
+        fillColor: resolvedFill,
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         enabledBorder: OutlineInputBorder(
-          borderSide: BorderSide(width: borderWidth!, color: borderColor!),
+          borderSide: BorderSide(width: borderWidth!, color: idleBorder),
           borderRadius: BorderRadius.all(Radius.circular(borderRadius!)),
         ),
         focusedBorder: OutlineInputBorder(
@@ -74,10 +82,10 @@ class BaseInput extends StatelessWidget {
         suffixIcon: suffixIcon,
         prefixIcon: prefixIcon,
         filled: true,
-        fillColor: Colors.white,
+        fillColor: resolvedFill,
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         enabledBorder: OutlineInputBorder(
-          borderSide: BorderSide(width: borderWidth!, color: borderColor!),
+          borderSide: BorderSide(width: borderWidth!, color: idleBorder),
           borderRadius: BorderRadius.all(Radius.circular(borderRadius!)),
         ),
         focusedBorder: OutlineInputBorder(
@@ -118,7 +126,7 @@ class BaseInput extends StatelessWidget {
               style: style ?? Theme.of(context).textTheme.bodyLarge,
               decoration: decoration != null
                   ? decoration!.copyWith(errorText: errorText)
-                  : getInputDecoration(context.locale.toString()),
+                  : getInputDecoration(context, context.locale.toString()),
               validator: validator != null ? (v) => validator!(v!) : null,
             ),
           )

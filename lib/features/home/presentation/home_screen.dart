@@ -35,7 +35,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _handlePendingNotificationNav() async {
-    final contactUuid = NotificationService().consumePendingNavigation();
+    await _openChatByUuid(NotificationService().consumePendingNavigation());
+  }
+
+  Future<void> _openChatByUuid(String? contactUuid) async {
     if (contactUuid == null || !mounted) return;
 
     // Try the live in-memory list first (fast, no I/O).
@@ -112,6 +115,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // A tap that arrives while the app is merely backgrounded lands here —
+    // initState has long since run, so the one-shot read above never sees it.
+    ref.listen<String?>(pendingChatNavigationProvider, (_, uuid) {
+      if (uuid == null) return;
+
+      ref.read(pendingChatNavigationProvider.notifier).state = null;
+      _openChatByUuid(uuid);
+    });
+
     final hide = _hideBottomNav;
 
     return Scaffold(

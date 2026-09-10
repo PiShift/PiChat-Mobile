@@ -24,6 +24,15 @@ class MainDataController extends StateNotifier<List<Contact>> {
     _loadContacts();
   }
 
+  static const _pageSize = 20;
+
+  int _page = 1;
+  bool _hasMore = true;
+  bool _isLoadingMore = false;
+
+  bool get hasMore => _hasMore;
+  bool get isLoadingMore => _isLoadingMore;
+
   Future<void> _loadContacts() async {
     // 1️⃣ Load **cached contacts immediately** → UI shows instantly
     final cachedContacts = await _contactRepo.getContacts(forceRefresh: false);
@@ -37,52 +46,130 @@ class MainDataController extends StateNotifier<List<Contact>> {
   /// The API now returns contacts with last_message embedded, so NO need to loop!
   Future<void> refreshContacts() async {
     try {
-      final apiContacts = await _contactRepo.getContacts(forceRefresh: true);
-      
-      // Sort by latest message descending so newest conversations appear first
-      final sorted = List<Contact>.from(apiContacts)
-        ..sort((a, b) {
-          final aTime = a.latestChatCreatedAt ?? a.createdAt;
-          final bTime = b.latestChatCreatedAt ?? b.createdAt;
-          return bTime.compareTo(aTime);
-        });
+      final apiContacts = await _contactRepo.getContacts(
+        page: 1,
+        perPage: _pageSize,
+        forceRefresh: true,
+      );
 
-      state = sorted;
+      // A refresh starts the list over, so paging restarts with it.
+      _page = 1;
+      _hasMore = apiContacts.length >= _pageSize;
+
+      state = _sortedByRecency(apiContacts);
     } catch (e) {
       print('Error refreshing contacts: $e');
     }
   }
 
-  void updateContactWithNewMessage(Chat chat) {
+  /// Append the next page of conversations.
+  ///
+  /// The list was previously capped at whatever the first request returned:
+  /// the repository accepted a page number but nothing ever asked for page two,
+  /// and the screen had no scroll listener, so an agent could not reach any
+  /// conversation past the first twenty.
+  Future<void> loadMoreContacts() async {
+    if (_isLoadingMore || !_hasMore) return;
+
+    _isLoadingMore = true;
+
+    try {
+      // Page from the oldest conversation we hold rather than by offset.
+      final oldest = state.isEmpty ? null : state.last;
+
+      final next = await _contactRepo.getContacts(
+        perPage: _pageSize,
+        forceRefresh: true,
+        before: oldest?.latestChatCreatedAt ?? oldest?.createdAt,
+        beforeId: oldest?.id,
+      );
+
+      _page += 1;
+
+      final seen = state.map((c) => c.id).toSet();
+      final fresh = next.where((c) => !seen.contains(c.id)).toList();
+
+      /*
+       * Stop when a page brings nothing new, not just when it comes back empty.
+       * This list is ordered by last activity and that order shifts constantly
+       * as messages arrive, so offset paging can hand back a page of contacts
+       * we already hold. Watching for an empty page alone let it walk through
+       * page after page of duplicates on a single flick.
+       */
+      if (fresh.isEmpty) {
+        _hasMore = false;
+
+        return;
+      }
+
+      _hasMore = next.length >= _pageSize;
+
+      state = _sortedByRecency([...state, ...fresh]);
+    } catch (e) {
+      print('Error loading more contacts: $e');
+    } finally {
+      _isLoadingMore = false;
+    }
+  }
+
+  /// Newest conversation first.
+  List<Contact> _sortedByRecency(List<Contact> contacts) {
+    return List<Contact>.from(contacts)
+      ..sort((a, b) {
+        final aTime = a.latestChatCreatedAt ?? a.createdAt;
+        final bTime = b.latestChatCreatedAt ?? b.createdAt;
+
+        return bTime.compareTo(aTime);
+      });
+  }
+
+  /// Apply an incoming message to the conversation list.
+  ///
+  /// A message from someone who is not in the loaded list used to be dropped
+  /// here, so a brand new conversation stayed invisible until the agent pulled
+  /// to refresh. The contact is now read from the local database - the realtime
+  /// handler has already written it - and inserted at the top.
+  Future<void> updateContactWithNewMessage(Chat chat) async {
     final List<Contact> updated = List.from(state);
 
     final index = updated.indexWhere((c) => c.id == chat.contactId);
-    if (index != -1) {
-      final contact = updated[index];
 
-      // Only update if the new message is newer
-      if (contact.latestChatCreatedAt == null ||
-          chat.createdAt.isAfter(contact.latestChatCreatedAt!)) {
-        final isInbound = chat.type == 'inbound';
-        final newContact = contact.copyWith(
-          lastChatId: chat.id,
-          lastChat: chat,
-          latestChatCreatedAt: chat.createdAt,
-          unreadCount: (contact.unreadCount ?? 0) + (chat.isRead ? 0 : 1),
-          lastInboundChatAt: isInbound ? chat.createdAt : contact.lastInboundChatAt,
-        );
+    if (index == -1) {
+      final stored = await _contactRepo.getContact(chat.contactId);
 
-        // Move to top only if not already at top
-        if (index != 0) {
-          updated.removeAt(index);
-          updated.insert(0, newContact);
-        } else {
-          updated[0] = newContact;
-        }
-
-        state = updated;
+      if (stored != null) {
+        addOrUpdateContact(stored.copyWith(lastChat: chat));
       }
+
+      return;
     }
+
+    final contact = updated[index];
+
+    // Only apply a message that is genuinely newer than what we hold.
+    if (contact.latestChatCreatedAt != null &&
+        !chat.createdAt.isAfter(contact.latestChatCreatedAt!)) {
+      return;
+    }
+
+    final isInbound = chat.type == 'inbound';
+    final newContact = contact.copyWith(
+      lastChatId: chat.id,
+      lastChat: chat,
+      latestChatCreatedAt: chat.createdAt,
+      unreadCount: (contact.unreadCount ?? 0) + (chat.isRead ? 0 : 1),
+      lastInboundChatAt: isInbound ? chat.createdAt : contact.lastInboundChatAt,
+    );
+
+    // Newest conversation first, the way every messaging app behaves.
+    if (index != 0) {
+      updated.removeAt(index);
+      updated.insert(0, newContact);
+    } else {
+      updated[0] = newContact;
+    }
+
+    state = updated;
   }
 
   /// Update a contact's unread count (called when messages are marked as read)

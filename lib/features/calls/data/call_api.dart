@@ -127,16 +127,25 @@ class CallApi {
 
   /// Update agent presence + register FCM device token so the backend
   /// can wake this device for incoming calls.
+  /// [voipToken] is the iOS PushKit credential, separate from the FCM token.
+  /// It is the only thing that can ring a killed iPhone — FCM cannot deliver
+  /// a VoIP push — so the backend stores it in its own column and sends those
+  /// pushes to APNs directly.
+  ///
+  /// Omitted keys are left untouched server-side, so a null token never
+  /// overwrites a good one that is already stored.
   Future<void> updateAgentStatus({
     required String status,
     String? deviceToken,
     String? devicePlatform,
+    String? voipToken,
   }) async {
     await _dio.patch('/agents/me/status', data: <String, dynamic>{
       'status': status,
       'organization_id': _org,
       if (deviceToken != null) 'device_token': deviceToken,
       if (devicePlatform != null) 'device_platform': devicePlatform,
+      if (voipToken != null && voipToken.isNotEmpty) 'voip_token': voipToken,
     });
   }
 

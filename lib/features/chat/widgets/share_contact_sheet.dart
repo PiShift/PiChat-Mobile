@@ -59,18 +59,16 @@ class _ShareContactSheetState extends State<_ShareContactSheet> {
       _error = null;
     });
     try {
-      final granted = await fc.FlutterContacts.requestPermission(readonly: true);
-      if (!granted) {
+      final status = await fc.FlutterContacts.permissions.request(fc.PermissionType.read);
+      if (status == fc.PermissionStatus.denied) {
         setState(() {
           _loading = false;
           _error = 'Contacts permission denied.';
         });
         return;
       }
-      final list = await fc.FlutterContacts.getContacts(
-        withProperties: true,
-        withPhoto: false,
-        sorted: true,
+      final list = await fc.FlutterContacts.getAll(
+        properties: fc.ContactProperties.all,
       );
       // Drop entries with no phone numbers — they can't be shared.
       final usable = list.where((c) => c.phones.isNotEmpty).toList();
@@ -89,7 +87,7 @@ class _ShareContactSheetState extends State<_ShareContactSheet> {
   }
 
   String _initial(fc.Contact c) {
-    final n = c.displayName.trim();
+    final n = c.displayName!.trim();
     return n.isEmpty ? '?' : n[0].toUpperCase();
   }
 
@@ -147,9 +145,9 @@ class _ShareContactSheetState extends State<_ShareContactSheet> {
     if (!mounted) return;
     Navigator.of(context).pop(
       SharedContactCard(
-        displayName: c.displayName,
-        firstName: c.name.first.isEmpty ? null : c.name.first,
-        lastName: c.name.last.isEmpty ? null : c.name.last,
+        displayName: c.displayName!,
+        firstName: c.name!.first!.isEmpty ? null : c.name!.first,
+        lastName: c.name!.last!.isEmpty ? null : c.name!.last,
         phones: [chosen],
       ),
     );
@@ -263,7 +261,7 @@ class _ShareContactSheetState extends State<_ShareContactSheet> {
                   color: Color(0xFF34A853), fontWeight: FontWeight.w600),
             ),
           ),
-          title: Text(c.displayName.isEmpty ? '(no name)' : c.displayName),
+          title: Text(c.displayName!.isEmpty ? '(no name)' : c.displayName!),
           subtitle: Text(
             c.phones.first.number +
                 (c.phones.length > 1 ? '  +${c.phones.length - 1}' : ''),

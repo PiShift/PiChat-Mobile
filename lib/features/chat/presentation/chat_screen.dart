@@ -88,11 +88,27 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     );
   }
 
+  final ScrollController _listScrollController = ScrollController();
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
+    _listScrollController.dispose();
     super.dispose();
+  }
+
+  /// Pull in the next page as the agent nears the end of the list. Searching
+  /// filters what is already loaded, so paging is paused while a query is
+  /// active rather than appending rows the filter would hide.
+  void _onListScroll() {
+    if (ref.read(searchQueryProvider).isNotEmpty) return;
+
+    final position = _listScrollController.position;
+
+    if (position.pixels >= position.maxScrollExtent - 400) {
+      ref.read(mainDataProvider.notifier).loadMoreContacts();
+    }
   }
 
   @override
@@ -111,6 +127,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     final allContacts = ref.watch(mainDataProvider);
     final activeFilter = ref.watch(activeFilterProvider);
     final isLoading = allContacts.isEmpty;
+    final listNotifier = ref.read(mainDataProvider.notifier);
+    final showLoadMoreFooter = listNotifier.hasMore &&
+        ref.watch(searchQueryProvider).isEmpty;
     final unreadCount = allContacts.fold<int>(0, (sum, c) => sum + c.unreadCount);
 
     return Scaffold(
@@ -156,16 +175,38 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
                           onRefresh: () async {
                             await ref.read(mainDataProvider.notifier).refreshContacts();
                           },
-                          child: ListView.builder(
-                            itemCount: contacts.length,
-                            itemBuilder: (context, index) {
-                              final contact = contacts[index];
-                              return GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => context.push('/home/chats/detail', extra: contact),
-                                child: ContactItem(contact: contact),
-                              );
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: (_) {
+                              _onListScroll();
+
+                              return false;
                             },
+                            child: ListView.builder(
+                              controller: _listScrollController,
+                              itemCount: contacts.length + (showLoadMoreFooter ? 1 : 0),
+                              itemBuilder: (context, index) {
+                                if (index >= contacts.length) {
+                                  return const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 20),
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    ),
+                                  );
+                                }
+
+                                final contact = contacts[index];
+
+                                return GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => context.push('/home/chats/detail', extra: contact),
+                                  child: ContactItem(contact: contact),
+                                );
+                              },
+                            ),
                           ),
                         ),
             ),

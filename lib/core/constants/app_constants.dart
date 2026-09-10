@@ -2,13 +2,17 @@
 class AppConstants {
   static const appName = 'PiChat';
   
-  // ⚠️ FOR LOCAL TESTING - Change back to production before release!
-  // Production:
-  static const apiBaseUrl = 'https://app.pichat.io/api/v1';
-  static const baseUrl = 'https://app.pichat.io';
-  static const wssUrl = 'ws-a103f1b6-c226-40d1-bd26-b924569d4c9c-reverb.laravel.cloud';
-  static const wssOrigin = 'https://app.pichat.io'; // Origin header for WebSocket
-  
+  // Production. The backend moved to pichat.mr; app.pichat.io no longer
+  // completes a TLS handshake, which is why every request - including login -
+  // failed with a generic error.
+  static const apiBaseUrl = 'https://pichat.mr/api/v1';
+  static const baseUrl = 'https://pichat.mr';
+
+  // Reverb, behind TLS on 443. The previous value was a retired Laravel Cloud
+  // instance left over from before the move to Forge.
+  static const wssUrl = 'ws.pichat.mr';
+  static const wssOrigin = 'https://pichat.mr'; // Origin header for WebSocket
+
   // Local development (your Mac's IP):
   // static const apiBaseUrl = 'http://192.168.1.5:8000/api/v1';
   // static const baseUrl = 'http://192.168.1.5:8000';

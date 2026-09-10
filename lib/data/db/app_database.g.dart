@@ -1002,6 +1002,16 @@ class $ChatsTable extends Chats with TableInfo<$ChatsTable, ChatData> {
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('CHECK ("is_read" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _isPibotMeta =
+      const VerificationMeta('isPibot');
+  @override
+  late final GeneratedColumn<bool> isPibot = GeneratedColumn<bool>(
+      'is_pibot', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_pibot" IN (0, 1))'),
+      defaultValue: const Constant(false));
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -1041,6 +1051,7 @@ class $ChatsTable extends Chats with TableInfo<$ChatsTable, ChatData> {
         mediaId,
         status,
         isRead,
+        isPibot,
         createdAt,
         updatedAt,
         deletedAt,
@@ -1107,6 +1118,10 @@ class $ChatsTable extends Chats with TableInfo<$ChatsTable, ChatData> {
       context.handle(_isReadMeta,
           isRead.isAcceptableOrUnknown(data['is_read']!, _isReadMeta));
     }
+    if (data.containsKey('is_pibot')) {
+      context.handle(_isPibotMeta,
+          isPibot.isAcceptableOrUnknown(data['is_pibot']!, _isPibotMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -1154,6 +1169,8 @@ class $ChatsTable extends Chats with TableInfo<$ChatsTable, ChatData> {
           .read(DriftSqlType.string, data['${effectivePrefix}status'])!,
       isRead: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_read'])!,
+      isPibot: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_pibot'])!,
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       updatedAt: attachedDatabase.typeMapping
@@ -1183,6 +1200,10 @@ class ChatData extends DataClass implements Insertable<ChatData> {
   final int? mediaId;
   final String status;
   final bool isRead;
+
+  /// True when the AI assistant sent this message rather than an agent, so the
+  /// thread can label it. Mirrors `chats.is_pibot` on the server.
+  final bool isPibot;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final DateTime? deletedAt;
@@ -1199,6 +1220,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
       this.mediaId,
       required this.status,
       required this.isRead,
+      required this.isPibot,
       required this.createdAt,
       this.updatedAt,
       this.deletedAt,
@@ -1225,6 +1247,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
     }
     map['status'] = Variable<String>(status);
     map['is_read'] = Variable<bool>(isRead);
+    map['is_pibot'] = Variable<bool>(isPibot);
     map['created_at'] = Variable<DateTime>(createdAt);
     if (!nullToAbsent || updatedAt != null) {
       map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -1257,6 +1280,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
           : Value(mediaId),
       status: Value(status),
       isRead: Value(isRead),
+      isPibot: Value(isPibot),
       createdAt: Value(createdAt),
       updatedAt: updatedAt == null && nullToAbsent
           ? const Value.absent()
@@ -1285,6 +1309,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
       mediaId: serializer.fromJson<int?>(json['mediaId']),
       status: serializer.fromJson<String>(json['status']),
       isRead: serializer.fromJson<bool>(json['isRead']),
+      isPibot: serializer.fromJson<bool>(json['isPibot']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
@@ -1306,6 +1331,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
       'mediaId': serializer.toJson<int?>(mediaId),
       'status': serializer.toJson<String>(status),
       'isRead': serializer.toJson<bool>(isRead),
+      'isPibot': serializer.toJson<bool>(isPibot),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime?>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
@@ -1325,6 +1351,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
           Value<int?> mediaId = const Value.absent(),
           String? status,
           bool? isRead,
+          bool? isPibot,
           DateTime? createdAt,
           Value<DateTime?> updatedAt = const Value.absent(),
           Value<DateTime?> deletedAt = const Value.absent(),
@@ -1341,6 +1368,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
         mediaId: mediaId.present ? mediaId.value : this.mediaId,
         status: status ?? this.status,
         isRead: isRead ?? this.isRead,
+        isPibot: isPibot ?? this.isPibot,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
         deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
@@ -1359,6 +1387,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
       mediaId: data.mediaId.present ? data.mediaId.value : this.mediaId,
       status: data.status.present ? data.status.value : this.status,
       isRead: data.isRead.present ? data.isRead.value : this.isRead,
+      isPibot: data.isPibot.present ? data.isPibot.value : this.isPibot,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
@@ -1380,6 +1409,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
           ..write('mediaId: $mediaId, ')
           ..write('status: $status, ')
           ..write('isRead: $isRead, ')
+          ..write('isPibot: $isPibot, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
@@ -1401,6 +1431,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
       mediaId,
       status,
       isRead,
+      isPibot,
       createdAt,
       updatedAt,
       deletedAt,
@@ -1420,6 +1451,7 @@ class ChatData extends DataClass implements Insertable<ChatData> {
           other.mediaId == this.mediaId &&
           other.status == this.status &&
           other.isRead == this.isRead &&
+          other.isPibot == this.isPibot &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.deletedAt == this.deletedAt &&
@@ -1438,6 +1470,7 @@ class ChatsCompanion extends UpdateCompanion<ChatData> {
   final Value<int?> mediaId;
   final Value<String> status;
   final Value<bool> isRead;
+  final Value<bool> isPibot;
   final Value<DateTime> createdAt;
   final Value<DateTime?> updatedAt;
   final Value<DateTime?> deletedAt;
@@ -1454,6 +1487,7 @@ class ChatsCompanion extends UpdateCompanion<ChatData> {
     this.mediaId = const Value.absent(),
     this.status = const Value.absent(),
     this.isRead = const Value.absent(),
+    this.isPibot = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
@@ -1471,6 +1505,7 @@ class ChatsCompanion extends UpdateCompanion<ChatData> {
     this.mediaId = const Value.absent(),
     this.status = const Value.absent(),
     this.isRead = const Value.absent(),
+    this.isPibot = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
@@ -1491,6 +1526,7 @@ class ChatsCompanion extends UpdateCompanion<ChatData> {
     Expression<int>? mediaId,
     Expression<String>? status,
     Expression<bool>? isRead,
+    Expression<bool>? isPibot,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
@@ -1508,6 +1544,7 @@ class ChatsCompanion extends UpdateCompanion<ChatData> {
       if (mediaId != null) 'media_id': mediaId,
       if (status != null) 'status': status,
       if (isRead != null) 'is_read': isRead,
+      if (isPibot != null) 'is_pibot': isPibot,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
@@ -1527,6 +1564,7 @@ class ChatsCompanion extends UpdateCompanion<ChatData> {
       Value<int?>? mediaId,
       Value<String>? status,
       Value<bool>? isRead,
+      Value<bool>? isPibot,
       Value<DateTime>? createdAt,
       Value<DateTime?>? updatedAt,
       Value<DateTime?>? deletedAt,
@@ -1543,6 +1581,7 @@ class ChatsCompanion extends UpdateCompanion<ChatData> {
       mediaId: mediaId ?? this.mediaId,
       status: status ?? this.status,
       isRead: isRead ?? this.isRead,
+      isPibot: isPibot ?? this.isPibot,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -1586,6 +1625,9 @@ class ChatsCompanion extends UpdateCompanion<ChatData> {
     if (isRead.present) {
       map['is_read'] = Variable<bool>(isRead.value);
     }
+    if (isPibot.present) {
+      map['is_pibot'] = Variable<bool>(isPibot.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -1615,6 +1657,7 @@ class ChatsCompanion extends UpdateCompanion<ChatData> {
           ..write('mediaId: $mediaId, ')
           ..write('status: $status, ')
           ..write('isRead: $isRead, ')
+          ..write('isPibot: $isPibot, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
@@ -1711,6 +1754,24 @@ class $ContactsTable extends Contacts
   late final GeneratedColumn<int> lastChatId = GeneratedColumn<int>(
       'last_chat_id', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _assignedAgentNameMeta =
+      const VerificationMeta('assignedAgentName');
+  @override
+  late final GeneratedColumn<String> assignedAgentName =
+      GeneratedColumn<String>('assigned_agent_name', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _assignedAgentIdMeta =
+      const VerificationMeta('assignedAgentId');
+  @override
+  late final GeneratedColumn<int> assignedAgentId = GeneratedColumn<int>(
+      'assigned_agent_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _ticketStatusMeta =
+      const VerificationMeta('ticketStatus');
+  @override
+  late final GeneratedColumn<String> ticketStatus = GeneratedColumn<String>(
+      'ticket_status', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -1740,6 +1801,9 @@ class $ContactsTable extends Contacts
         unreadCount,
         unreadMessages,
         lastChatId,
+        assignedAgentName,
+        assignedAgentId,
+        ticketStatus,
         createdAt,
         updatedAt
       ];
@@ -1822,6 +1886,24 @@ class $ContactsTable extends Contacts
           lastChatId.isAcceptableOrUnknown(
               data['last_chat_id']!, _lastChatIdMeta));
     }
+    if (data.containsKey('assigned_agent_name')) {
+      context.handle(
+          _assignedAgentNameMeta,
+          assignedAgentName.isAcceptableOrUnknown(
+              data['assigned_agent_name']!, _assignedAgentNameMeta));
+    }
+    if (data.containsKey('assigned_agent_id')) {
+      context.handle(
+          _assignedAgentIdMeta,
+          assignedAgentId.isAcceptableOrUnknown(
+              data['assigned_agent_id']!, _assignedAgentIdMeta));
+    }
+    if (data.containsKey('ticket_status')) {
+      context.handle(
+          _ticketStatusMeta,
+          ticketStatus.isAcceptableOrUnknown(
+              data['ticket_status']!, _ticketStatusMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -1866,6 +1948,12 @@ class $ContactsTable extends Contacts
           .read(DriftSqlType.int, data['${effectivePrefix}unread_messages'])!,
       lastChatId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}last_chat_id']),
+      assignedAgentName: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}assigned_agent_name']),
+      assignedAgentId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}assigned_agent_id']),
+      ticketStatus: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}ticket_status']),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       updatedAt: attachedDatabase.typeMapping
@@ -1893,6 +1981,13 @@ class ContactData extends DataClass implements Insertable<ContactData> {
   final int unreadCount;
   final int unreadMessages;
   final int? lastChatId;
+
+  /// Current ticket ownership, denormalised from the server so the chat list
+  /// can label a row and the thread header can show who holds it without a
+  /// per-row lookup.
+  final String? assignedAgentName;
+  final int? assignedAgentId;
+  final String? ticketStatus;
   final DateTime createdAt;
   final DateTime? updatedAt;
   const ContactData(
@@ -1909,6 +2004,9 @@ class ContactData extends DataClass implements Insertable<ContactData> {
       required this.unreadCount,
       required this.unreadMessages,
       this.lastChatId,
+      this.assignedAgentName,
+      this.assignedAgentId,
+      this.ticketStatus,
       required this.createdAt,
       this.updatedAt});
   @override
@@ -1938,6 +2036,15 @@ class ContactData extends DataClass implements Insertable<ContactData> {
     map['unread_messages'] = Variable<int>(unreadMessages);
     if (!nullToAbsent || lastChatId != null) {
       map['last_chat_id'] = Variable<int>(lastChatId);
+    }
+    if (!nullToAbsent || assignedAgentName != null) {
+      map['assigned_agent_name'] = Variable<String>(assignedAgentName);
+    }
+    if (!nullToAbsent || assignedAgentId != null) {
+      map['assigned_agent_id'] = Variable<int>(assignedAgentId);
+    }
+    if (!nullToAbsent || ticketStatus != null) {
+      map['ticket_status'] = Variable<String>(ticketStatus);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     if (!nullToAbsent || updatedAt != null) {
@@ -1972,6 +2079,15 @@ class ContactData extends DataClass implements Insertable<ContactData> {
       lastChatId: lastChatId == null && nullToAbsent
           ? const Value.absent()
           : Value(lastChatId),
+      assignedAgentName: assignedAgentName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(assignedAgentName),
+      assignedAgentId: assignedAgentId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(assignedAgentId),
+      ticketStatus: ticketStatus == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ticketStatus),
       createdAt: Value(createdAt),
       updatedAt: updatedAt == null && nullToAbsent
           ? const Value.absent()
@@ -1997,6 +2113,10 @@ class ContactData extends DataClass implements Insertable<ContactData> {
       unreadCount: serializer.fromJson<int>(json['unreadCount']),
       unreadMessages: serializer.fromJson<int>(json['unreadMessages']),
       lastChatId: serializer.fromJson<int?>(json['lastChatId']),
+      assignedAgentName:
+          serializer.fromJson<String?>(json['assignedAgentName']),
+      assignedAgentId: serializer.fromJson<int?>(json['assignedAgentId']),
+      ticketStatus: serializer.fromJson<String?>(json['ticketStatus']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
     );
@@ -2018,6 +2138,9 @@ class ContactData extends DataClass implements Insertable<ContactData> {
       'unreadCount': serializer.toJson<int>(unreadCount),
       'unreadMessages': serializer.toJson<int>(unreadMessages),
       'lastChatId': serializer.toJson<int?>(lastChatId),
+      'assignedAgentName': serializer.toJson<String?>(assignedAgentName),
+      'assignedAgentId': serializer.toJson<int?>(assignedAgentId),
+      'ticketStatus': serializer.toJson<String?>(ticketStatus),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime?>(updatedAt),
     };
@@ -2037,6 +2160,9 @@ class ContactData extends DataClass implements Insertable<ContactData> {
           int? unreadCount,
           int? unreadMessages,
           Value<int?> lastChatId = const Value.absent(),
+          Value<String?> assignedAgentName = const Value.absent(),
+          Value<int?> assignedAgentId = const Value.absent(),
+          Value<String?> ticketStatus = const Value.absent(),
           DateTime? createdAt,
           Value<DateTime?> updatedAt = const Value.absent()}) =>
       ContactData(
@@ -2055,6 +2181,14 @@ class ContactData extends DataClass implements Insertable<ContactData> {
         unreadCount: unreadCount ?? this.unreadCount,
         unreadMessages: unreadMessages ?? this.unreadMessages,
         lastChatId: lastChatId.present ? lastChatId.value : this.lastChatId,
+        assignedAgentName: assignedAgentName.present
+            ? assignedAgentName.value
+            : this.assignedAgentName,
+        assignedAgentId: assignedAgentId.present
+            ? assignedAgentId.value
+            : this.assignedAgentId,
+        ticketStatus:
+            ticketStatus.present ? ticketStatus.value : this.ticketStatus,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
       );
@@ -2081,6 +2215,15 @@ class ContactData extends DataClass implements Insertable<ContactData> {
           : this.unreadMessages,
       lastChatId:
           data.lastChatId.present ? data.lastChatId.value : this.lastChatId,
+      assignedAgentName: data.assignedAgentName.present
+          ? data.assignedAgentName.value
+          : this.assignedAgentName,
+      assignedAgentId: data.assignedAgentId.present
+          ? data.assignedAgentId.value
+          : this.assignedAgentId,
+      ticketStatus: data.ticketStatus.present
+          ? data.ticketStatus.value
+          : this.ticketStatus,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -2102,6 +2245,9 @@ class ContactData extends DataClass implements Insertable<ContactData> {
           ..write('unreadCount: $unreadCount, ')
           ..write('unreadMessages: $unreadMessages, ')
           ..write('lastChatId: $lastChatId, ')
+          ..write('assignedAgentName: $assignedAgentName, ')
+          ..write('assignedAgentId: $assignedAgentId, ')
+          ..write('ticketStatus: $ticketStatus, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -2123,6 +2269,9 @@ class ContactData extends DataClass implements Insertable<ContactData> {
       unreadCount,
       unreadMessages,
       lastChatId,
+      assignedAgentName,
+      assignedAgentId,
+      ticketStatus,
       createdAt,
       updatedAt);
   @override
@@ -2142,6 +2291,9 @@ class ContactData extends DataClass implements Insertable<ContactData> {
           other.unreadCount == this.unreadCount &&
           other.unreadMessages == this.unreadMessages &&
           other.lastChatId == this.lastChatId &&
+          other.assignedAgentName == this.assignedAgentName &&
+          other.assignedAgentId == this.assignedAgentId &&
+          other.ticketStatus == this.ticketStatus &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -2160,6 +2312,9 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
   final Value<int> unreadCount;
   final Value<int> unreadMessages;
   final Value<int?> lastChatId;
+  final Value<String?> assignedAgentName;
+  final Value<int?> assignedAgentId;
+  final Value<String?> ticketStatus;
   final Value<DateTime> createdAt;
   final Value<DateTime?> updatedAt;
   const ContactsCompanion({
@@ -2176,6 +2331,9 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
     this.unreadCount = const Value.absent(),
     this.unreadMessages = const Value.absent(),
     this.lastChatId = const Value.absent(),
+    this.assignedAgentName = const Value.absent(),
+    this.assignedAgentId = const Value.absent(),
+    this.ticketStatus = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
@@ -2193,6 +2351,9 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
     this.unreadCount = const Value.absent(),
     this.unreadMessages = const Value.absent(),
     this.lastChatId = const Value.absent(),
+    this.assignedAgentName = const Value.absent(),
+    this.assignedAgentId = const Value.absent(),
+    this.ticketStatus = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   })  : uuid = Value(uuid),
@@ -2213,6 +2374,9 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
     Expression<int>? unreadCount,
     Expression<int>? unreadMessages,
     Expression<int>? lastChatId,
+    Expression<String>? assignedAgentName,
+    Expression<int>? assignedAgentId,
+    Expression<String>? ticketStatus,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
   }) {
@@ -2231,6 +2395,9 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
       if (unreadCount != null) 'unread_count': unreadCount,
       if (unreadMessages != null) 'unread_messages': unreadMessages,
       if (lastChatId != null) 'last_chat_id': lastChatId,
+      if (assignedAgentName != null) 'assigned_agent_name': assignedAgentName,
+      if (assignedAgentId != null) 'assigned_agent_id': assignedAgentId,
+      if (ticketStatus != null) 'ticket_status': ticketStatus,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
     });
@@ -2250,6 +2417,9 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
       Value<int>? unreadCount,
       Value<int>? unreadMessages,
       Value<int?>? lastChatId,
+      Value<String?>? assignedAgentName,
+      Value<int?>? assignedAgentId,
+      Value<String?>? ticketStatus,
       Value<DateTime>? createdAt,
       Value<DateTime?>? updatedAt}) {
     return ContactsCompanion(
@@ -2266,6 +2436,9 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
       unreadCount: unreadCount ?? this.unreadCount,
       unreadMessages: unreadMessages ?? this.unreadMessages,
       lastChatId: lastChatId ?? this.lastChatId,
+      assignedAgentName: assignedAgentName ?? this.assignedAgentName,
+      assignedAgentId: assignedAgentId ?? this.assignedAgentId,
+      ticketStatus: ticketStatus ?? this.ticketStatus,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -2314,6 +2487,15 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
     if (lastChatId.present) {
       map['last_chat_id'] = Variable<int>(lastChatId.value);
     }
+    if (assignedAgentName.present) {
+      map['assigned_agent_name'] = Variable<String>(assignedAgentName.value);
+    }
+    if (assignedAgentId.present) {
+      map['assigned_agent_id'] = Variable<int>(assignedAgentId.value);
+    }
+    if (ticketStatus.present) {
+      map['ticket_status'] = Variable<String>(ticketStatus.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -2339,6 +2521,9 @@ class ContactsCompanion extends UpdateCompanion<ContactData> {
           ..write('unreadCount: $unreadCount, ')
           ..write('unreadMessages: $unreadMessages, ')
           ..write('lastChatId: $lastChatId, ')
+          ..write('assignedAgentName: $assignedAgentName, ')
+          ..write('assignedAgentId: $assignedAgentId, ')
+          ..write('ticketStatus: $ticketStatus, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -3091,6 +3276,308 @@ class ChatLogsCompanion extends UpdateCompanion<ChatLogsData> {
   }
 }
 
+class $TimelineEventsTable extends TimelineEvents
+    with TableInfo<$TimelineEventsTable, TimelineEventRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TimelineEventsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'));
+  static const VerificationMeta _contactIdMeta =
+      const VerificationMeta('contactId');
+  @override
+  late final GeneratedColumn<int> contactId = GeneratedColumn<int>(
+      'contact_id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+      'kind', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _payloadMeta =
+      const VerificationMeta('payload');
+  @override
+  late final GeneratedColumn<String> payload = GeneratedColumn<String>(
+      'payload', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, contactId, kind, payload, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'timeline_events';
+  @override
+  VerificationContext validateIntegrity(Insertable<TimelineEventRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('contact_id')) {
+      context.handle(_contactIdMeta,
+          contactId.isAcceptableOrUnknown(data['contact_id']!, _contactIdMeta));
+    } else if (isInserting) {
+      context.missing(_contactIdMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+          _kindMeta, kind.isAcceptableOrUnknown(data['kind']!, _kindMeta));
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(_payloadMeta,
+          payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta));
+    } else if (isInserting) {
+      context.missing(_payloadMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  TimelineEventRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TimelineEventRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      contactId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}contact_id'])!,
+      kind: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}kind'])!,
+      payload: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}payload'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+    );
+  }
+
+  @override
+  $TimelineEventsTable createAlias(String alias) {
+    return $TimelineEventsTable(attachedDatabase, alias);
+  }
+}
+
+class TimelineEventRow extends DataClass
+    implements Insertable<TimelineEventRow> {
+  /// `chat_logs.id` — unique across every entity type, unlike `entity_id`.
+  final int id;
+  final int contactId;
+
+  /// `ticket`, `notes` or `call`.
+  final String kind;
+
+  /// The server's `value` object, as JSON.
+  final String payload;
+  final DateTime createdAt;
+  const TimelineEventRow(
+      {required this.id,
+      required this.contactId,
+      required this.kind,
+      required this.payload,
+      required this.createdAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['contact_id'] = Variable<int>(contactId);
+    map['kind'] = Variable<String>(kind);
+    map['payload'] = Variable<String>(payload);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  TimelineEventsCompanion toCompanion(bool nullToAbsent) {
+    return TimelineEventsCompanion(
+      id: Value(id),
+      contactId: Value(contactId),
+      kind: Value(kind),
+      payload: Value(payload),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory TimelineEventRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TimelineEventRow(
+      id: serializer.fromJson<int>(json['id']),
+      contactId: serializer.fromJson<int>(json['contactId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      payload: serializer.fromJson<String>(json['payload']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'contactId': serializer.toJson<int>(contactId),
+      'kind': serializer.toJson<String>(kind),
+      'payload': serializer.toJson<String>(payload),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  TimelineEventRow copyWith(
+          {int? id,
+          int? contactId,
+          String? kind,
+          String? payload,
+          DateTime? createdAt}) =>
+      TimelineEventRow(
+        id: id ?? this.id,
+        contactId: contactId ?? this.contactId,
+        kind: kind ?? this.kind,
+        payload: payload ?? this.payload,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  TimelineEventRow copyWithCompanion(TimelineEventsCompanion data) {
+    return TimelineEventRow(
+      id: data.id.present ? data.id.value : this.id,
+      contactId: data.contactId.present ? data.contactId.value : this.contactId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      payload: data.payload.present ? data.payload.value : this.payload,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimelineEventRow(')
+          ..write('id: $id, ')
+          ..write('contactId: $contactId, ')
+          ..write('kind: $kind, ')
+          ..write('payload: $payload, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, contactId, kind, payload, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TimelineEventRow &&
+          other.id == this.id &&
+          other.contactId == this.contactId &&
+          other.kind == this.kind &&
+          other.payload == this.payload &&
+          other.createdAt == this.createdAt);
+}
+
+class TimelineEventsCompanion extends UpdateCompanion<TimelineEventRow> {
+  final Value<int> id;
+  final Value<int> contactId;
+  final Value<String> kind;
+  final Value<String> payload;
+  final Value<DateTime> createdAt;
+  const TimelineEventsCompanion({
+    this.id = const Value.absent(),
+    this.contactId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  TimelineEventsCompanion.insert({
+    this.id = const Value.absent(),
+    required int contactId,
+    required String kind,
+    required String payload,
+    required DateTime createdAt,
+  })  : contactId = Value(contactId),
+        kind = Value(kind),
+        payload = Value(payload),
+        createdAt = Value(createdAt);
+  static Insertable<TimelineEventRow> custom({
+    Expression<int>? id,
+    Expression<int>? contactId,
+    Expression<String>? kind,
+    Expression<String>? payload,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (contactId != null) 'contact_id': contactId,
+      if (kind != null) 'kind': kind,
+      if (payload != null) 'payload': payload,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  TimelineEventsCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? contactId,
+      Value<String>? kind,
+      Value<String>? payload,
+      Value<DateTime>? createdAt}) {
+    return TimelineEventsCompanion(
+      id: id ?? this.id,
+      contactId: contactId ?? this.contactId,
+      kind: kind ?? this.kind,
+      payload: payload ?? this.payload,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (contactId.present) {
+      map['contact_id'] = Variable<int>(contactId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<String>(payload.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimelineEventsCompanion(')
+          ..write('id: $id, ')
+          ..write('contactId: $contactId, ')
+          ..write('kind: $kind, ')
+          ..write('payload: $payload, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3102,6 +3589,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ContactsTable contacts = $ContactsTable(this);
   late final $MediasTable medias = $MediasTable(this);
   late final $ChatLogsTable chatLogs = $ChatLogsTable(this);
+  late final $TimelineEventsTable timelineEvents = $TimelineEventsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3113,7 +3601,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         chats,
         contacts,
         medias,
-        chatLogs
+        chatLogs,
+        timelineEvents
       ];
 }
 
@@ -3644,6 +4133,7 @@ typedef $$ChatsTableCreateCompanionBuilder = ChatsCompanion Function({
   Value<int?> mediaId,
   Value<String> status,
   Value<bool> isRead,
+  Value<bool> isPibot,
   Value<DateTime> createdAt,
   Value<DateTime?> updatedAt,
   Value<DateTime?> deletedAt,
@@ -3661,6 +4151,7 @@ typedef $$ChatsTableUpdateCompanionBuilder = ChatsCompanion Function({
   Value<int?> mediaId,
   Value<String> status,
   Value<bool> isRead,
+  Value<bool> isPibot,
   Value<DateTime> createdAt,
   Value<DateTime?> updatedAt,
   Value<DateTime?> deletedAt,
@@ -3707,6 +4198,9 @@ class $$ChatsTableFilterComposer extends Composer<_$AppDatabase, $ChatsTable> {
 
   ColumnFilters<bool> get isRead => $composableBuilder(
       column: $table.isRead, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isPibot => $composableBuilder(
+      column: $table.isPibot, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -3763,6 +4257,9 @@ class $$ChatsTableOrderingComposer
   ColumnOrderings<bool> get isRead => $composableBuilder(
       column: $table.isRead, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<bool> get isPibot => $composableBuilder(
+      column: $table.isPibot, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 
@@ -3818,6 +4315,9 @@ class $$ChatsTableAnnotationComposer
   GeneratedColumn<bool> get isRead =>
       $composableBuilder(column: $table.isRead, builder: (column) => column);
 
+  GeneratedColumn<bool> get isPibot =>
+      $composableBuilder(column: $table.isPibot, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -3865,6 +4365,7 @@ class $$ChatsTableTableManager extends RootTableManager<
             Value<int?> mediaId = const Value.absent(),
             Value<String> status = const Value.absent(),
             Value<bool> isRead = const Value.absent(),
+            Value<bool> isPibot = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> updatedAt = const Value.absent(),
             Value<DateTime?> deletedAt = const Value.absent(),
@@ -3882,6 +4383,7 @@ class $$ChatsTableTableManager extends RootTableManager<
             mediaId: mediaId,
             status: status,
             isRead: isRead,
+            isPibot: isPibot,
             createdAt: createdAt,
             updatedAt: updatedAt,
             deletedAt: deletedAt,
@@ -3899,6 +4401,7 @@ class $$ChatsTableTableManager extends RootTableManager<
             Value<int?> mediaId = const Value.absent(),
             Value<String> status = const Value.absent(),
             Value<bool> isRead = const Value.absent(),
+            Value<bool> isPibot = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> updatedAt = const Value.absent(),
             Value<DateTime?> deletedAt = const Value.absent(),
@@ -3916,6 +4419,7 @@ class $$ChatsTableTableManager extends RootTableManager<
             mediaId: mediaId,
             status: status,
             isRead: isRead,
+            isPibot: isPibot,
             createdAt: createdAt,
             updatedAt: updatedAt,
             deletedAt: deletedAt,
@@ -3954,6 +4458,9 @@ typedef $$ContactsTableCreateCompanionBuilder = ContactsCompanion Function({
   Value<int> unreadCount,
   Value<int> unreadMessages,
   Value<int?> lastChatId,
+  Value<String?> assignedAgentName,
+  Value<int?> assignedAgentId,
+  Value<String?> ticketStatus,
   Value<DateTime> createdAt,
   Value<DateTime?> updatedAt,
 });
@@ -3971,6 +4478,9 @@ typedef $$ContactsTableUpdateCompanionBuilder = ContactsCompanion Function({
   Value<int> unreadCount,
   Value<int> unreadMessages,
   Value<int?> lastChatId,
+  Value<String?> assignedAgentName,
+  Value<int?> assignedAgentId,
+  Value<String?> ticketStatus,
   Value<DateTime> createdAt,
   Value<DateTime?> updatedAt,
 });
@@ -4025,6 +4535,17 @@ class $$ContactsTableFilterComposer
 
   ColumnFilters<int> get lastChatId => $composableBuilder(
       column: $table.lastChatId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get assignedAgentName => $composableBuilder(
+      column: $table.assignedAgentName,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get assignedAgentId => $composableBuilder(
+      column: $table.assignedAgentId,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get ticketStatus => $composableBuilder(
+      column: $table.ticketStatus, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -4084,6 +4605,18 @@ class $$ContactsTableOrderingComposer
   ColumnOrderings<int> get lastChatId => $composableBuilder(
       column: $table.lastChatId, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get assignedAgentName => $composableBuilder(
+      column: $table.assignedAgentName,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get assignedAgentId => $composableBuilder(
+      column: $table.assignedAgentId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get ticketStatus => $composableBuilder(
+      column: $table.ticketStatus,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 
@@ -4139,6 +4672,15 @@ class $$ContactsTableAnnotationComposer
   GeneratedColumn<int> get lastChatId => $composableBuilder(
       column: $table.lastChatId, builder: (column) => column);
 
+  GeneratedColumn<String> get assignedAgentName => $composableBuilder(
+      column: $table.assignedAgentName, builder: (column) => column);
+
+  GeneratedColumn<int> get assignedAgentId => $composableBuilder(
+      column: $table.assignedAgentId, builder: (column) => column);
+
+  GeneratedColumn<String> get ticketStatus => $composableBuilder(
+      column: $table.ticketStatus, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -4182,6 +4724,9 @@ class $$ContactsTableTableManager extends RootTableManager<
             Value<int> unreadCount = const Value.absent(),
             Value<int> unreadMessages = const Value.absent(),
             Value<int?> lastChatId = const Value.absent(),
+            Value<String?> assignedAgentName = const Value.absent(),
+            Value<int?> assignedAgentId = const Value.absent(),
+            Value<String?> ticketStatus = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> updatedAt = const Value.absent(),
           }) =>
@@ -4199,6 +4744,9 @@ class $$ContactsTableTableManager extends RootTableManager<
             unreadCount: unreadCount,
             unreadMessages: unreadMessages,
             lastChatId: lastChatId,
+            assignedAgentName: assignedAgentName,
+            assignedAgentId: assignedAgentId,
+            ticketStatus: ticketStatus,
             createdAt: createdAt,
             updatedAt: updatedAt,
           ),
@@ -4216,6 +4764,9 @@ class $$ContactsTableTableManager extends RootTableManager<
             Value<int> unreadCount = const Value.absent(),
             Value<int> unreadMessages = const Value.absent(),
             Value<int?> lastChatId = const Value.absent(),
+            Value<String?> assignedAgentName = const Value.absent(),
+            Value<int?> assignedAgentId = const Value.absent(),
+            Value<String?> ticketStatus = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> updatedAt = const Value.absent(),
           }) =>
@@ -4233,6 +4784,9 @@ class $$ContactsTableTableManager extends RootTableManager<
             unreadCount: unreadCount,
             unreadMessages: unreadMessages,
             lastChatId: lastChatId,
+            assignedAgentName: assignedAgentName,
+            assignedAgentId: assignedAgentId,
+            ticketStatus: ticketStatus,
             createdAt: createdAt,
             updatedAt: updatedAt,
           ),
@@ -4633,6 +5187,174 @@ typedef $$ChatLogsTableProcessedTableManager = ProcessedTableManager<
     (ChatLogsData, BaseReferences<_$AppDatabase, $ChatLogsTable, ChatLogsData>),
     ChatLogsData,
     PrefetchHooks Function()>;
+typedef $$TimelineEventsTableCreateCompanionBuilder = TimelineEventsCompanion
+    Function({
+  Value<int> id,
+  required int contactId,
+  required String kind,
+  required String payload,
+  required DateTime createdAt,
+});
+typedef $$TimelineEventsTableUpdateCompanionBuilder = TimelineEventsCompanion
+    Function({
+  Value<int> id,
+  Value<int> contactId,
+  Value<String> kind,
+  Value<String> payload,
+  Value<DateTime> createdAt,
+});
+
+class $$TimelineEventsTableFilterComposer
+    extends Composer<_$AppDatabase, $TimelineEventsTable> {
+  $$TimelineEventsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get contactId => $composableBuilder(
+      column: $table.contactId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get kind => $composableBuilder(
+      column: $table.kind, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$TimelineEventsTableOrderingComposer
+    extends Composer<_$AppDatabase, $TimelineEventsTable> {
+  $$TimelineEventsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get contactId => $composableBuilder(
+      column: $table.contactId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+      column: $table.kind, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$TimelineEventsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TimelineEventsTable> {
+  $$TimelineEventsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get contactId =>
+      $composableBuilder(column: $table.contactId, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$TimelineEventsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $TimelineEventsTable,
+    TimelineEventRow,
+    $$TimelineEventsTableFilterComposer,
+    $$TimelineEventsTableOrderingComposer,
+    $$TimelineEventsTableAnnotationComposer,
+    $$TimelineEventsTableCreateCompanionBuilder,
+    $$TimelineEventsTableUpdateCompanionBuilder,
+    (
+      TimelineEventRow,
+      BaseReferences<_$AppDatabase, $TimelineEventsTable, TimelineEventRow>
+    ),
+    TimelineEventRow,
+    PrefetchHooks Function()> {
+  $$TimelineEventsTableTableManager(
+      _$AppDatabase db, $TimelineEventsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TimelineEventsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TimelineEventsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TimelineEventsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> contactId = const Value.absent(),
+            Value<String> kind = const Value.absent(),
+            Value<String> payload = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              TimelineEventsCompanion(
+            id: id,
+            contactId: contactId,
+            kind: kind,
+            payload: payload,
+            createdAt: createdAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int contactId,
+            required String kind,
+            required String payload,
+            required DateTime createdAt,
+          }) =>
+              TimelineEventsCompanion.insert(
+            id: id,
+            contactId: contactId,
+            kind: kind,
+            payload: payload,
+            createdAt: createdAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$TimelineEventsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $TimelineEventsTable,
+    TimelineEventRow,
+    $$TimelineEventsTableFilterComposer,
+    $$TimelineEventsTableOrderingComposer,
+    $$TimelineEventsTableAnnotationComposer,
+    $$TimelineEventsTableCreateCompanionBuilder,
+    $$TimelineEventsTableUpdateCompanionBuilder,
+    (
+      TimelineEventRow,
+      BaseReferences<_$AppDatabase, $TimelineEventsTable, TimelineEventRow>
+    ),
+    TimelineEventRow,
+    PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -4651,4 +5373,6 @@ class $AppDatabaseManager {
       $$MediasTableTableManager(_db, _db.medias);
   $$ChatLogsTableTableManager get chatLogs =>
       $$ChatLogsTableTableManager(_db, _db.chatLogs);
+  $$TimelineEventsTableTableManager get timelineEvents =>
+      $$TimelineEventsTableTableManager(_db, _db.timelineEvents);
 }

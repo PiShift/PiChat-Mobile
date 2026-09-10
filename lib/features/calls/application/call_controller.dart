@@ -138,14 +138,16 @@ class CallController extends StateNotifier<CallState> {
         return;
       }
 
-      // 4) Show native dialer UI; SDP answer arrives via Reverb (CallAccepted).
+      // 4) Stay on our own OutboundCallScreen; the SDP answer arrives via
+      // Reverb (CallAccepted).
+      //
+      // We deliberately do NOT register the outgoing leg with CallKit. The
+      // system UI adds nothing here — the app is in the foreground and
+      // OutboundCallScreen already renders the dialing state — while
+      // CallKit's own `actionCallEnded` was tearing the call down a few
+      // seconds into ringing, before the customer could answer.
       final call = result.call!;
       state = state.copyWith(call: call, phase: CallPhase.dialing);
-      await CallkitService.instance.startOutgoing(
-        callUuid: call.uuid,
-        calleeName: contactName,
-        calleePhone: contactPhone,
-      );
       await WakelockPlus.enable();
     } catch (e) {
       state = state.copyWith(phase: CallPhase.ended, error: e.toString());
@@ -234,6 +236,12 @@ class CallController extends StateNotifier<CallState> {
     state = state.copyWith(phase: CallPhase.connecting);
 
     try {
+      // A VoIP push launches the app, so an accept from the CallKit UI can
+      // arrive before SplashScreen has finished restoring the token and
+      // organization from secure storage. Without this wait, CallApi throws
+      // "No organization selected" and the call the push woke us for fails.
+      await _awaitAuthReady();
+
       // The SDP offer may be inline (FCM extra) or fetched separately later.
       final offer = sdpOffer ?? call.metadata?['sdp_offer'] as String?;
       if (offer == null) {
@@ -283,6 +291,28 @@ class CallController extends StateNotifier<CallState> {
       state = state.copyWith(phase: CallPhase.ended, error: e.toString());
       await CallkitService.instance.endCall(call.uuid);
     }
+  }
+
+  /// Waits, briefly, for auth state to be restored. Returns as soon as both
+  /// the token and organization are present; gives up after [timeout] so a
+  /// genuinely-logged-out app still fails fast rather than hanging the accept.
+  Future<void> _awaitAuthReady({
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+
+    while (DateTime.now().isBefore(deadline)) {
+      final token = _ref.read(authTokenProvider);
+      final orgId = _ref.read(authProvider).organizationId;
+
+      if (token != null && token.isNotEmpty && orgId != null) return;
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+
+    // ignore: avoid_print
+    print('[Calling] auth not ready after ${timeout.inSeconds}s; '
+        'attempting accept anyway');
   }
 
   Future<void> _rejectCurrent() async {
@@ -506,6 +536,15 @@ class CallController extends StateNotifier<CallState> {
           // User pressed the red hangup button on the system UI. We MUST
           // tell the backend so it can terminate the call on Meta's side,
           // otherwise the customer's WhatsApp keeps ringing/talking.
+          //
+          // Only inbound calls are registered with CallKit, so an event that
+          // arrives while we are placing a call is the system tearing down a
+          // leg it should not own — acting on it would hang up on ourselves.
+          if (state.call?.direction == 'outbound') {
+            // ignore: avoid_print
+            print('[Calling] ignoring CallKit actionCallEnded for outbound call');
+            break;
+          }
           await hangup();
           break;
         case Event.actionCallTimeout:

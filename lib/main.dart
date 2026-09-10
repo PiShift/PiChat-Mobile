@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:pichat/features/chat/application/local_media_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/provider_logger.dart';
 import 'package:pichat/core/services/notification_service.dart';
@@ -33,6 +34,10 @@ Future<void> main() async {
 
   // Everything else (SecureStorage reads, DB queries, Reverb setup, FCM token
   // registration) is deferred to SplashScreen so runApp() fires immediately.
+  // Cache the documents directory so stored media paths can be resolved
+  // synchronously while widgets build.
+  await LocalMediaManager.init();
+
   runApp(
     EasyLocalization(
       supportedLocales: const [Locale('en'), Locale('ar'), Locale('fr')],
@@ -53,8 +58,36 @@ class PiChatApp extends ConsumerStatefulWidget {
   ConsumerState<PiChatApp> createState() => _PiChatAppState();
 }
 
-class _PiChatAppState extends ConsumerState<PiChatApp> {
+class _PiChatAppState extends ConsumerState<PiChatApp>
+    with WidgetsBindingObserver {
   bool _localeSynced = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+
+    // Re-assert calling presence whenever the app comes back to the front.
+    //
+    // Two reasons. iOS registers the PushKit token asynchronously, so on a
+    // cold start it can still be missing when presence is first sent — and
+    // without it the phone cannot be rung at all while the app is closed.
+    // Second, `last_seen_at` is the only signal the backend has that this
+    // device is still real; a stale row means calls get dispatched to a
+    // device that will never ring.
+    NotificationService().registerCallingDevice();
+  }
 
   @override
   Widget build(BuildContext context) {

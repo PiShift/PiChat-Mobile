@@ -15,6 +15,12 @@ class Contacts extends Table {
   IntColumn get unreadCount => integer().withDefault(const Constant(0))();
   IntColumn get unreadMessages => integer().withDefault(const Constant(0))();
   IntColumn get lastChatId => integer().nullable()();
+  /// Current ticket ownership, denormalised from the server so the chat list
+  /// can label a row and the thread header can show who holds it without a
+  /// per-row lookup.
+  TextColumn get assignedAgentName => text().nullable()();
+  IntColumn get assignedAgentId => integer().nullable()();
+  TextColumn get ticketStatus => text().nullable()();
   DateTimeColumn get createdAt => dateTime().clientDefault(() => DateTime.now())();
   DateTimeColumn get updatedAt => dateTime().nullable()();
 

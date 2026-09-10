@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatf
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/dio_provider.dart';
 import 'package:pichat/core/services/notification_service.dart';
+import 'package:pichat/services/reverb_singleton.dart';
+import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/data/models/organization_model.dart';
 import 'package:pichat/data/models/user_model.dart';
@@ -109,6 +111,21 @@ class AuthRepository {
     await _ref.read(authProvider.notifier).setOrganization(orgModel.id);
     final userId = _ref.read(userIdProvider);
     _ref.read(organizationProvider.notifier).setOrganization(orgModel, userId!);
+
+    // Realtime is scoped to an organization, so this is the first moment it can
+    // start after a fresh login.
+    _ref.read(reverbServiceProvider).startFor(
+      orgId: orgModel.id.toString(),
+      database: _ref.read(appDatabaseProvider),
+      userId: userId,
+    );
+
+    // Re-register the message-push device too, not just the calling presence.
+    // `user_devices` is scoped to an organization, so without this the handset
+    // stays bound to whichever tenant it registered under and the agent keeps
+    // receiving the previous organization's notifications after switching.
+    await NotificationService().registerTokenWithBackend(_dio);
+
     // Register this device with the calling backend now that we have an org.
     await _registerCallingDevice();
   }

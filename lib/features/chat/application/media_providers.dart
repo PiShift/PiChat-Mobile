@@ -68,7 +68,13 @@ class MediaPlaybackNotifier extends StateNotifier<MediaPlaybackState> {
 
   MediaPlaybackNotifier(this._ref, this._mediaId) : super(MediaPlaybackState());
 
-  Future<void> downloadMedia(String contactId, String mediaType, {String? metaId, String? metaUrl}) async {
+  Future<void> downloadMedia(
+    String contactId,
+    String mediaType, {
+    String? metaId,
+    String? metaUrl,
+    String? mimeType,
+  }) async {
     if (state.isDownloading || state.isDownloaded) return;
 
     state = state.copyWith(isDownloading: true, error: null);
@@ -87,6 +93,7 @@ class MediaPlaybackNotifier extends StateNotifier<MediaPlaybackState> {
         metaId: metaId,
         metaUrl: metaUrl,
         mediaType: mediaType,
+        mimeType: mimeType,
         accessToken: accessToken,
       );
 

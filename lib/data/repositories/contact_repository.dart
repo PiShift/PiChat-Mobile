@@ -22,11 +22,18 @@ class ContactRepository {
 
   ContactRepository(this._dio, this._db, this._ref);
 
+  /// Fetch a page of conversations.
+  ///
+  /// Pass [before]/[beforeId] from the oldest contact already held to page with
+  /// a keyset cursor. Offset paging drifts on this list because it is ordered
+  /// by last activity, which changes as messages arrive.
   Future<List<Contact>> getContacts({
     int page = 1,
     int perPage = 20,
     String? search,
     bool forceRefresh = false,
+    DateTime? before,
+    int? beforeId,
   }) async {
     if (!forceRefresh && page == 1) {
       final cached = await (_db.select(_db.contacts)
@@ -59,19 +66,22 @@ class ContactRepository {
       'page': page,
       'per_page': perPage,
       if (search != null) 'search': search,
+      if (before != null) 'before': before.toUtc().toIso8601String(),
+      if (beforeId != null) 'before_id': beforeId,
     });
 
     final data = response.data['data'] as List;
     final contacts = data.map((json) => Contact.fromJson(json)).toList();
 
-    if (page == 1) {
-      await _db.batch((batch) {
-        batch.insertAllOnConflictUpdate(
-          _db.contacts,
-          contacts.map((c) => c.toCompanion()).toList(),
-        );
-      });
-    }
+    // Every page is cached, not just the first. Only persisting page 1 meant
+    // that scrolling deeper fetched rows the app immediately forgot, so they
+    // were unavailable offline and had to be refetched every time.
+    await _db.batch((batch) {
+      batch.insertAllOnConflictUpdate(
+        _db.contacts,
+        contacts.map((c) => c.toCompanion()).toList(),
+      );
+    });
 
     return contacts;
   }
@@ -82,8 +92,12 @@ class ContactRepository {
       if (cached != null) return Contact.fromDb(cached);
     }
 
-    final response = await _dio.get('/contacts/$id');
-    final contact = Contact.fromJson(response.data['data']);
+    // GET /contacts/{id} does not exist and answered 405, so a contact we had
+    // never stored could not be resolved - which silently killed the unread
+    // badge, banner and tone for the first message of a new conversation.
+    final response = await _dio.get('/contacts/id/$id');
+    final payload = response.data['data'] ?? response.data['contact'];
+    final contact = Contact.fromJson(payload as Map<String, dynamic>);
 
     await _db.into(_db.contacts).insertOnConflictUpdate(contact.toCompanion());
     return contact;

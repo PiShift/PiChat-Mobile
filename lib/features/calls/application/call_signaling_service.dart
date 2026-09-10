@@ -16,6 +16,10 @@ class CallSignalingService {
   bool _muted = false;
   bool _speaker = false;
 
+  /// How many ICE candidates the current peer connection produced. Logged
+  /// with the SDP so a failed call can be told apart from a failed gather.
+  int _candidateCount = 0;
+
   Stream<MediaStream> get remoteStream$ => _remoteStreamController.stream;
   MediaStream? get localStream => _localStream;
   bool get isMuted => _muted;
@@ -32,7 +36,10 @@ class CallSignalingService {
       },
     });
     await _pc!.setLocalDescription(offer);
-    return offer.sdp ?? '';
+
+    // NOT `offer.sdp` — that snapshot is taken before ICE gathering has run,
+    // so it carries zero candidates. See [_gatheredLocalSdp].
+    return _gatheredLocalSdp();
   }
 
   /// Inbound flow: accept remote offer, then build an SDP answer to send back.
@@ -58,7 +65,11 @@ class CallSignalingService {
     await _pc!.setLocalDescription(
       RTCSessionDescription(tunedSdp, answer.type),
     );
-    return tunedSdp;
+
+    // Read the description back rather than returning `tunedSdp`: the local
+    // description accumulates ICE candidates as they are gathered, and Meta
+    // needs them all in this one answer. See [_gatheredLocalSdp].
+    return _gatheredLocalSdp();
   }
 
   /// Outbound flow: process the remote SDP answer once received via webhook.
@@ -75,6 +86,71 @@ class CallSignalingService {
       rethrow;
     }
   }
+
+  /// Returns the local description **after** ICE gathering has finished.
+  ///
+  /// WhatsApp Calling does not support trickle ICE — there is no Graph API
+  /// action for sending a candidate after the fact, so every candidate has to
+  /// be inside the one SDP we hand to `/calls`. `createOffer()` /
+  /// `createAnswer()` return a snapshot taken before gathering starts, so
+  /// using them sends Meta an SDP with no candidates at all: the customer's
+  /// phone rings, Meta fails its connectivity check, and the call is torn
+  /// down a moment later.
+  Future<String> _gatheredLocalSdp() async {
+    await _waitForIceGathering();
+
+    final local = await _pc!.getLocalDescription();
+    final sdp = _fixFingerprintCase(local?.sdp ?? '');
+
+    // ignore: avoid_print
+    print('[Calling] local SDP ready: ${sdp.length} chars, '
+        '$_candidateCount ICE candidates gathered');
+
+    return sdp;
+  }
+
+  /// Blocks until the peer connection reports gathering complete, or until
+  /// [timeout] — a partial candidate set still beats an empty one, and some
+  /// networks never reach `complete` when the STUN server is unreachable.
+  Future<void> _waitForIceGathering({
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final pc = _pc;
+    if (pc == null) return;
+
+    if (pc.iceGatheringState ==
+        RTCIceGatheringState.RTCIceGatheringStateComplete) {
+      return;
+    }
+
+    final completer = Completer<void>();
+    Timer? timer;
+
+    void finish(String why) {
+      if (completer.isCompleted) return;
+      timer?.cancel();
+      // ignore: avoid_print
+      print('[Calling] ICE gathering finished ($why)');
+      completer.complete();
+    }
+
+    pc.onIceGatheringState = (state) {
+      if (state == RTCIceGatheringState.RTCIceGatheringStateComplete) {
+        finish('complete');
+      }
+    };
+    timer = Timer(timeout, () => finish('timeout'));
+
+    await completer.future;
+  }
+
+  /// libwebrtc emits `a=fingerprint:sha-256 ...` in lower case. Meta's SDP
+  /// parser expects the hash-function token upper-cased, and rejects the
+  /// media setup otherwise.
+  String _fixFingerprintCase(String sdp) => sdp.replaceAllMapped(
+        RegExp(r'^a=fingerprint:(\S+)', multiLine: true),
+        (m) => 'a=fingerprint:${m.group(1)!.toUpperCase()}',
+      );
 
   /// Rewrites the OPUS `a=fmtp` line to ask for a higher bitrate, full
   /// playback rate and inband forward error correction. Meta's offer caps us
@@ -159,8 +235,23 @@ class CallSignalingService {
       }
     };
 
+    _candidateCount = 0;
+
+    _pc!.onIceCandidate = (candidate) {
+      if (candidate.candidate == null) return;
+      _candidateCount++;
+    };
+
+    // These two are the whole story when a call rings and then dies: if the
+    // ICE state never leaves `checking`, the SDP we sent Meta was unusable.
+    _pc!.onIceConnectionState = (state) {
+      // ignore: avoid_print
+      print('[Calling] ICE connection state: $state');
+    };
+
     _pc!.onConnectionState = (state) {
-      // Could surface this to controller for UI badges.
+      // ignore: avoid_print
+      print('[Calling] peer connection state: $state');
     };
 
     _localStream = await navigator.mediaDevices.getUserMedia({

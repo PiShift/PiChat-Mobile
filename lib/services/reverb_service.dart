@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_x/flutter_secure_storage_x.dart';
+import 'package:pichat/core/constants/app_constants.dart';
+import 'package:pichat/core/services/notification_service.dart';
 import 'package:pichat/core/state/auth_state.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/models/chat_model.dart';
+import 'package:pichat/data/repositories/contact_repository.dart';
 import 'package:pichat/features/calls/application/call_controller.dart';
 import 'package:pichat/features/chat/application/main_controller.dart';
 import 'package:pichat/features/chat/application/message_provider.dart';
@@ -26,6 +28,11 @@ class ReverbService {
   int _reconnectAttempts = 0;
   String? organizationId;
   int? _userId;
+
+  /// Handed to us in pusher:connection_established. Every private-channel
+  /// subscription has to be signed against it, so it is kept for the life of
+  /// the connection and cleared when the socket drops.
+  String? _socketId;
   late AppDatabase _db;
   final Ref _ref;
 
@@ -44,6 +51,32 @@ class ReverbService {
     organizationId = orgId;
     _db = database;
     _userId = userId;
+  }
+
+  /// Start, or restart, the realtime connection for an organization.
+  ///
+  /// Safe to call repeatedly. It only reconnects when the organization or the
+  /// agent actually changed, because every channel we subscribe to is scoped to
+  /// one of those. Previously connect() was reached from the splash screen
+  /// alone, and only when an organization id was already in secure storage - so
+  /// a fresh login followed by picking an organization never started realtime
+  /// at all, and only a relaunch of the app appeared to fix it.
+  void startFor({
+    required String orgId,
+    required AppDatabase database,
+    int? userId,
+  }) {
+    final alreadyRunningForThisAgent =
+        _connected && organizationId == orgId && _userId == userId;
+
+    if (alreadyRunningForThisAgent) return;
+
+    if (_connected) {
+      disconnect();
+    }
+
+    init(orgId: orgId, database: database, userId: userId);
+    connect();
   }
 
   void connect() async {
@@ -83,17 +116,23 @@ class ReverbService {
           print('📩 Reverb Event: ${data['event']}  Channel: ${data['channel']}  Data: ${data['data']}');
           if (data['event'] == 'pusher:connection_established') {
             final payload = json.decode(data['data']);
+            _socketId = payload['socket_id']?.toString();
             final activityTimeout = payload['activity_timeout'] ?? 30;
             _startPing(activityTimeout - 5); // ping a little earlier than timeout
-            final channelName = "chats.ch$organizationId";
-            await subscribeToPrivateChannel(channelName, _channel);
 
-            // Also subscribe to the per-org calls channel + per-agent channel
-            // so we receive IncomingCall / CallAccepted / CallEnded broadcasts.
-            await subscribeToPrivateChannel("calls.org.$organizationId", _channel);
-            if (_userId != null) {
-              await subscribeToPrivateChannel("calls.agent.$_userId", _channel);
-            }
+            await _subscribeToChannels();
+          } else if (data['event'] == 'pusher:error') {
+            /*
+             * A misconfigured key used to land in the catch-all branch below and
+             * read as an ordinary message, so realtime just silently did
+             * nothing. Reverb answers 4001 "Application does not exist" for a
+             * stale REVERB_APP_KEY, which is worth saying out loud.
+             */
+            _handleProtocolError(data['data']);
+          } else if (data['event'] == 'pusher:subscription_error') {
+            // The signature was rejected - almost always an expired Sanctum
+            // token or an agent who is no longer a member of the organization.
+            print('❌ Reverb subscription refused: ${data['data']}');
           } else if (data['event'] == 'pusher:pong') {
             print("📩 Reverb Got pong");
           } else if (data['event'] == 'NewChatEvent') {
@@ -136,6 +175,37 @@ class ReverbService {
     _scheduleReconnect();
   }
 
+  /// Reverb protocol-level failures. Codes in the 4000-4099 range are fatal
+  /// configuration problems: retrying cannot fix them, so we stop instead of
+  /// looping forever against a server that will keep refusing us.
+  void _handleProtocolError(dynamic raw) {
+    int? code;
+    String? message;
+
+    try {
+      final payload = raw is String ? json.decode(raw) : raw;
+      code = payload['code'] is int
+          ? payload['code'] as int
+          : int.tryParse('${payload['code']}');
+      message = payload['message']?.toString();
+    } catch (_) {
+      // fall through with what we have
+    }
+
+    print('❌ Reverb error ${code ?? '?'}: ${message ?? raw}');
+
+    if (code == 4001) {
+      print('❌ REVERB_APP_KEY does not match the server. '
+          'Check AppConstants/reverbServiceProvider against the backend.');
+    }
+
+    if (code != null && code >= 4000 && code < 4100) {
+      // Fatal: do not reconnect in a loop.
+      _stopPing();
+      disconnect();
+    }
+  }
+
   void _scheduleReconnect() {
     _reconnectAttempts++;
     final delay = (_reconnectAttempts > 5 ? 30 : 5 * _reconnectAttempts);
@@ -145,6 +215,7 @@ class ReverbService {
 
   void disconnect() {
     _connected = false;
+    _socketId = null;
     try {
       _channel?.sink.close();
     } catch (_) {}
@@ -173,12 +244,18 @@ class ReverbService {
     _pingTimer = null;
   }
 
-  Future<String?> broadcastAuthentication(String socketId, String channelName, String appUrl, String sanctumToken) async {
+  /// Ask the backend to sign a private-channel subscription.
+  ///
+  /// [channelName] must be the wire name, i.e. already carrying the
+  /// `private-` prefix, because that is the string Laravel signs.
+  Future<String?> broadcastAuthentication(
+    String socketId,
+    String channelName,
+    String sanctumToken,
+  ) async {
     try {
-      print("===== Socket: $socketId");
-      print("===== Channel: $channelName");
       final response = await http.post(
-        Uri.parse('https://$appUrl/api/broadcasting/auth'),
+        Uri.parse('${AppConstants.baseUrl}/api/broadcasting/auth'),
         headers: {
           'Authorization': 'Bearer $sanctumToken',
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -189,31 +266,84 @@ class ReverbService {
           'channel_name': channelName,
         }).query,
       );
+
       if (response.statusCode == 200) {
-        final authData = jsonDecode(response.body);
-        final authToken = authData['auth'];
-        return authToken;
-      } else {
-        throw HttpException('Authentication failed: ${response.statusCode} - ${response.body}');
+        return jsonDecode(response.body)['auth'] as String?;
       }
+
+      print('❌ Channel auth failed for $channelName: '
+          '${response.statusCode} ${response.body}');
+      return null;
     } catch (e) {
-      print('Authentication Error: $e');
-      rethrow;
+      print('❌ Channel auth error for $channelName: $e');
+      return null;
     }
   }
 
 
 
-  Future<void> subscribeToPrivateChannel(String channelName, channel) async {
+  /// Every channel this app listens on is private, so each subscription has to
+  /// be signed. Previously this sent a bare pusher:subscribe with no signature
+  /// and no `private-` prefix, which Reverb silently refused - no messages,
+  /// no error.
+  Future<void> _subscribeToChannels() async {
+    final socketId = _socketId;
 
-    final subscriptionMessage = {
+    if (socketId == null) {
+      print('❌ Cannot subscribe: no socket id yet');
+      return;
+    }
+
+    final token = await secureStorage.read(key: 'token');
+
+    if (token == null || token.isEmpty) {
+      print('❌ Cannot subscribe: no auth token stored');
+      return;
+    }
+
+    final channels = <String>[
+      'chats.ch$organizationId',
+      'calls.org.$organizationId',
+      if (_userId != null) 'calls.agent.$_userId',
+    ];
+
+    for (final name in channels) {
+      await subscribeToPrivateChannel(name, _channel, token: token);
+    }
+  }
+
+  Future<void> subscribeToPrivateChannel(
+    String channelName,
+    channel, {
+    String? token,
+  }) async {
+    final socketId = _socketId;
+
+    if (socketId == null) return;
+
+    final sanctumToken = token ?? await secureStorage.read(key: 'token');
+
+    if (sanctumToken == null || sanctumToken.isEmpty) return;
+
+    // Laravel's PrivateChannel('chats.ch1') is published on 'private-chats.ch1'
+    // and /broadcasting/auth signs that prefixed name, so both the auth request
+    // and the subscribe frame have to use it.
+    final wireName =
+        channelName.startsWith('private-') ? channelName : 'private-$channelName';
+
+    final auth = await broadcastAuthentication(socketId, wireName, sanctumToken);
+
+    if (auth == null) return;
+
+    channel?.sink.add(jsonEncode({
       'event': 'pusher:subscribe',
       'data': {
-        'channel': channelName,
-      }
-    };
-    channel?.sink.add(jsonEncode(subscriptionMessage));
-    print('Reverb Subscription message sent');
+        'channel': wireName,
+        'auth': auth,
+      },
+    }));
+
+    print('📡 Subscribed to $wireName');
   }
 
   void _handleIncomingChat(Chat chat) async {
@@ -291,9 +421,31 @@ class ReverbService {
     });
 
     // Update contact lastChat info (outside the chat transaction is fine)
-    final contact = await (_db.select(_db.contacts)
+    var contact = await (_db.select(_db.contacts)
       ..where((c) => c.id.equals(chat.contactId)))
         .getSingleOrNull();
+
+    /*
+     * The first message of a brand new conversation names a contact we have
+     * never stored. Everything below - the unread badge, the banner, the tone,
+     * the row in the list - used to be skipped for exactly the messages that
+     * matter most, and the conversation only appeared after a manual refresh.
+     * Fetch the contact once, then carry on as normal.
+     */
+    if (contact == null) {
+      try {
+        await _ref.read(contactRepositoryProvider).getContact(
+              chat.contactId,
+              forceRefresh: true,
+            );
+
+        contact = await (_db.select(_db.contacts)
+          ..where((c) => c.id.equals(chat.contactId)))
+            .getSingleOrNull();
+      } catch (e) {
+        print('⚠️ Could not fetch contact ${chat.contactId} for an incoming message: $e');
+      }
+    }
 
     if (contact != null) {
       // Only real inbound content bumps the unread badge.
@@ -333,9 +485,19 @@ class ReverbService {
   void _showLocalNotification(String contactName, Chat chat) async {
     final messageBody = _buildMessageBody(chat);
     final appState = WidgetsBinding.instance.lifecycleState;
-    final isInForeground = appState == AppLifecycleState.resumed;
 
-    if (!isInForeground) {
+    /*
+     * Only a genuinely backgrounded app should raise a system notification.
+     * Testing for `resumed` alone sent the transient `inactive` state - which
+     * happens while the app switcher is open, during a permission prompt, or
+     * whenever the window simply is not focused - down the background path, so
+     * the in-app banner never appeared.
+     */
+    final isBackgrounded = appState == AppLifecycleState.paused ||
+        appState == AppLifecycleState.detached ||
+        appState == AppLifecycleState.hidden;
+
+    if (isBackgrounded) {
       final localNotifications = FlutterLocalNotificationsPlugin();
       await localNotifications.show(
         id: chat.id,
@@ -367,6 +529,15 @@ class ReverbService {
       // User is already reading this conversation — no banner needed.
       return;
     }
+
+    /*
+     * The tone used to be played only from the FCM handler, which meant the
+     * websocket - the fast path, and the one that actually updates the UI -
+     * announced messages silently. Playing it here makes the alert as prompt as
+     * the banner; NotificationService collapses duplicates so the push arriving
+     * moments later does not beep a second time.
+     */
+    NotificationService().playMessageSound();
 
     _ref.read(inAppNotificationProvider.notifier).state = InAppNotification(
       contactId: chat.contactId,

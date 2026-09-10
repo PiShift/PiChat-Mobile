@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:pichat/core/state/auth_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/dio_provider.dart';
 
@@ -63,7 +64,11 @@ class AppSettings {
   final String mediaAutoDownload;
 
   AppSettings({
-    this.theme = 'light',
+    // 'system' means "follow the device". Defaulting to 'light' here made
+    // ThemeMode.system unreachable: resolvedThemeModeProvider falls back to
+    // this value whenever the user has not picked a mode, so every phone in
+    // dark mode still got the light theme.
+    this.theme = 'system',
     this.language = 'en',
     this.notificationsEnabled = true,
     this.soundEnabled = true,
@@ -77,7 +82,7 @@ class AppSettings {
     final chat = json['chat'] as Map<String, dynamic>? ?? {};
 
     return AppSettings(
-      theme: json['theme'] as String? ?? 'light',
+      theme: json['theme'] as String? ?? 'system',
       language: json['language'] as String? ?? 'en',
       notificationsEnabled: notifications['enabled'] as bool? ?? true,
       soundEnabled: notifications['sound'] as bool? ?? true,
@@ -222,13 +227,31 @@ class SettingsRepository {
 }
 
 /// Provider for user profile
-final userProfileProvider = FutureProvider<UserProfile>((ref) async {
+final userProfileProvider = FutureProvider<UserProfile?>((ref) async {
+  if (!ref.watch(_hasAuthToken)) return null;
+
   final repo = ref.watch(settingsRepositoryProvider);
   return repo.getProfile();
 });
 
-/// Provider for app settings
+/// Provider for app settings.
+///
+/// Gated on the auth token. The theme is resolved at the root of the widget
+/// tree, so this used to fire `GET /user/settings` the instant the app built —
+/// before SplashScreen had restored the token from secure storage — and every
+/// cold start logged a 401. Watching the token means the request is simply
+/// deferred: defaults render immediately, then this re-runs and fetches for
+/// real the moment the token lands.
 final appSettingsProvider = FutureProvider<AppSettings>((ref) async {
+  if (!ref.watch(_hasAuthToken)) return AppSettings();
+
   final repo = ref.watch(settingsRepositoryProvider);
   return repo.getSettings();
+});
+
+/// True once an auth token is available. Kept separate so these providers
+/// re-run when the token arrives, but not on every unrelated token rewrite.
+final _hasAuthToken = Provider<bool>((ref) {
+  final token = ref.watch(authTokenProvider);
+  return token != null && token.isNotEmpty;
 });

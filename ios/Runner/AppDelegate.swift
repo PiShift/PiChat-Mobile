@@ -4,6 +4,7 @@ import AudioToolbox
 import UIKit
 import PushKit
 import CallKit
+import WebRTC
 import flutter_callkit_incoming
 
 @main
@@ -81,7 +82,7 @@ import flutter_callkit_incoming
     // {
     //   "id": "<call_uuid>",
     //   "nameCaller": "John Doe",
-    //   "handle": "+22236973666",
+    //   "handle": "+22236090070",
     //   "type": 0,
     //   "extra": { "wa_call_id": "...", "sdp_offer": "..." }
     // }
@@ -114,11 +115,20 @@ import flutter_callkit_incoming
     // No-op; Dart side handles missed-call bookkeeping.
   }
 
+  // CallKit owns the audio session for a call it presents, and WebRTC has to be
+  // told when that session becomes active — it does not observe CallKit itself.
+  // Without these two hooks a call answered from the CallKit UI (lock screen,
+  // or any VoIP-woken call) connects but carries no audio in either direction.
   func didActivateAudioSession(_ audioSession: AVAudioSession) {
-    // flutter_webrtc uses the activated session.
+    let rtcSession = RTCAudioSession.sharedInstance()
+    rtcSession.audioSessionDidActivate(audioSession)
+    // WebRTC refuses to touch the session unless it believes it owns it.
+    rtcSession.isAudioEnabled = true
   }
 
   func didDeactivateAudioSession(_ audioSession: AVAudioSession) {
-    // No-op.
+    let rtcSession = RTCAudioSession.sharedInstance()
+    rtcSession.audioSessionDidDeactivate(audioSession)
+    rtcSession.isAudioEnabled = false
   }
 }

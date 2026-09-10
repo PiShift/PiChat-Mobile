@@ -44,7 +44,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           profileAsync.when(
             loading: () => _buildProfileSkeleton(),
             error: (_, __) => _buildProfileError(),
-            data: (profile) => _buildProfileSection(profile),
+            // null while the auth token is still being restored — show the
+            // skeleton rather than a spurious error.
+            data: (profile) => profile == null
+                ? _buildProfileSkeleton()
+                : _buildProfileSection(profile),
           ),
 
           Divider(height: 1, color: PiColors.of(context).divider),

@@ -7,6 +7,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/data/models/chat_media_model.dart';
+import 'package:pichat/features/chat/application/local_media_manager.dart';
+import 'package:pichat/features/chat/presentation/image_viewer_screen.dart';
 import 'package:pichat/features/chat/application/media_providers.dart';
 
 import 'chat_item.dart';
@@ -42,8 +44,16 @@ class ImagePreview extends ConsumerWidget {
         !media.path!.startsWith('http');
     final localFromPath = pathIsLocal ? media.path : null;
 
-    // Priority: 1) Riverpod download state, 2) passed localFilePath, 3) DB location flag, 4) non-http path
-    final resolvedLocal = playbackState.localPath ?? localFilePath ?? localFromDb ?? localFromPath;
+    // Priority: 1) Riverpod download state, 2) passed localFilePath, 3) DB
+    // location flag, 4) non-http path.
+    //
+    // Re-anchored to the current app container: stored paths are relative, and
+    // an absolute one written by an earlier install points nowhere. Without
+    // this the file looked missing, Image.file failed into the download prompt,
+    // and every image asked to be downloaded again after an app update.
+    final resolvedLocal = LocalMediaManager.resolve(
+      playbackState.localPath ?? localFilePath ?? localFromDb ?? localFromPath,
+    );
 
     // When we have a local file, wrap in full-screen tap gesture
     if (resolvedLocal != null) {
@@ -84,7 +94,7 @@ class ImagePreview extends ConsumerWidget {
     return Stack(
       alignment: Alignment.center,
       children: [
-        _buildPlaceholder(context, isLoading: playbackState.isDownloading),
+        _buildPlaceholder(context, isLoading: false),
         if (playbackState.error != null)
           Positioned(
             bottom: 4,
@@ -97,6 +107,8 @@ class ImagePreview extends ConsumerWidget {
               textAlign: TextAlign.center,
             ),
           ),
+        if (playbackState.isDownloading)
+          _downloadOverlay(isLoading: true, progress: playbackState.progress),
         if (!playbackState.isDownloading && !playbackState.isDownloaded)
           GestureDetector(
             onTap: () => _downloadFromMeta(ref),
@@ -106,7 +118,7 @@ class ImagePreview extends ConsumerWidget {
     );
   }
 
-  Widget _downloadOverlay({required bool isLoading}) {
+  Widget _downloadOverlay({required bool isLoading, double? progress}) {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: const BoxDecoration(
@@ -114,25 +126,92 @@ class ImagePreview extends ConsumerWidget {
         shape: BoxShape.circle,
       ),
       child: isLoading
-          ? const SizedBox(
+          ? SizedBox(
               width: 24,
               height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              // A determinate ring once the download reports progress, so a
+              // large photo on a slow connection shows movement instead of a
+              // spinner that says nothing.
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+                value: (progress != null && progress > 0 && progress < 1)
+                    ? progress
+                    : null,
+              ),
             )
-          : Icon(LucideIcons.download, color: Colors.white, size: 24),
+          : const Icon(LucideIcons.download, color: Colors.white, size: 24),
     );
   }
 
   Widget _buildPlaceholder(BuildContext context, {required bool isLoading}) {
+    final colors = PiColors.of(context);
+
     return SizedBox(
       width: double.infinity,
       height: ChatMessageItem.mediaMaxHeight,
-      child: Center(
-        child: isLoading
-            ? const CircularProgressIndicator(strokeWidth: 2)
-            : Icon(LucideIcons.image, size: 48, color: PiColors.of(context).ink400),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // A tinted ground rather than a bare icon, matching the video and
+          // document cards.
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [colors.surfaceRaised, colors.surface],
+              ),
+            ),
+          ),
+          Center(
+            child: Icon(
+              LucideIcons.image,
+              size: 40,
+              color: colors.ink400.withValues(alpha: 0.45),
+            ),
+          ),
+          if (_sizeLabel != null)
+            Positioned(
+              left: 8,
+              bottom: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(LucideIcons.image, size: 11, color: Colors.white),
+                    const SizedBox(width: 4),
+                    Text(
+                      _sizeLabel!,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 11,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
+  }
+
+  /// Size matters before downloading on mobile data, so it is shown up front.
+  String? get _sizeLabel {
+    final bytes = int.tryParse(media.size ?? '');
+
+    if (bytes == null || bytes <= 0) return null;
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   /// Download via stored meta_url; falls back to Meta API if url unavailable
@@ -144,22 +223,13 @@ class ImagePreview extends ConsumerWidget {
 
   void _showFullScreenImage(BuildContext context, String? resolvedLocal) {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => Scaffold(
-          backgroundColor: Colors.black,
-          appBar: AppBar(
-            backgroundColor: Colors.black,
-            iconTheme: const IconThemeData(color: Colors.white),
-          ),
-          body: Center(
-            child: InteractiveViewer(
-              child: resolvedLocal != null
-                  ? Image.file(File(resolvedLocal), fit: BoxFit.contain)
-                  : media.path != null
-                      ? Image.network(media.path!, fit: BoxFit.contain)
-                      : _buildPlaceholder(context, isLoading: false),
-            ),
-          ),
+      MaterialPageRoute<void>(
+        builder: (_) => ImageViewerScreen(
+          path: resolvedLocal,
+          networkUrl: media.path != null && media.path!.startsWith('http')
+              ? media.path
+              : null,
+          title: media.name,
         ),
       ),
     );

@@ -17,6 +17,8 @@ class Chat {
   final int? mediaId;
   final String status;
   final bool isRead;
+  /// True when the AI assistant sent this rather than an agent.
+  final bool isPibot;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final DateTime? deletedAt;
@@ -36,6 +38,7 @@ class Chat {
     this.mediaId,
     required this.status,
     required this.isRead,
+    this.isPibot = false,
     required this.createdAt,
     this.updatedAt,
     this.deletedAt,
@@ -58,6 +61,7 @@ class Chat {
     media: json['media'] != null ? ChatMedia.fromJson(json['media']) : null,
     status: json['status'] ?? 'pending',
     isRead: json['is_read'] == 1 ? true : false,
+    isPibot: json['is_pibot'] == true || json['is_pibot'] == 1,
     createdAt: DateTime.parse(json['created_at']),
     updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
     deletedAt: json['deleted_at'] != null ? DateTime.parse(json['deleted_at']) : null,
@@ -104,6 +108,7 @@ class Chat {
       metadata: metadata,
       status: 'delivered',
       isRead: json['is_read'] == true || json['is_read'] == 1,
+      isPibot: json['is_pibot'] == true || json['is_pibot'] == 1,
       createdAt: json['sent_at'] != null 
           ? DateTime.parse(json['sent_at']) 
           : (json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now()),
@@ -123,6 +128,7 @@ class Chat {
     'media_id': mediaId,
     'status': status,
     'is_read': isRead,
+    'is_pibot': isPibot,
     'created_at': createdAt.toIso8601String(),
     'updated_at': updatedAt?.toIso8601String(),
     'deleted_at': deletedAt?.toIso8601String(),
@@ -143,6 +149,7 @@ class Chat {
       mediaId: row.mediaId,
       status: row.status,
       isRead: row.isRead,
+      isPibot: row.isPibot,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       deletedAt: row.deletedAt,
@@ -163,6 +170,7 @@ class Chat {
     mediaId: Value(mediaId),
     status: Value(status),
     isRead: Value(isRead),
+    isPibot: Value(isPibot),
     createdAt: Value(createdAt),
     updatedAt: Value(updatedAt),
     deletedAt: Value(deletedAt),
@@ -181,6 +189,7 @@ class Chat {
     int? mediaId,
     String? status,
     bool? isRead,
+    bool? isPibot,
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? deletedAt,
@@ -200,6 +209,7 @@ class Chat {
       mediaId: mediaId ?? this.mediaId,
       status: status ?? this.status,
       isRead: isRead ?? this.isRead,
+      isPibot: isPibot ?? this.isPibot,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:pichat/core/constants/app_constants.dart';
 import 'package:pichat/core/theme/app_colors.dart';
+import 'package:pichat/core/utils/whatsapp_text.dart';
 import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/core/theme/app_spacing.dart';
 import 'package:pichat/data/models/chat_model.dart';
@@ -41,16 +42,30 @@ class ContactItem extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: Sz.sp(context, 15),
-                          fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w600,
-                          color: PiColors.of(context).textPrimary,
-                          height: 20 / 15,
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: Sz.sp(context, 15),
+                                fontWeight:
+                                    hasUnread ? FontWeight.w700 : FontWeight.w600,
+                                color: PiColors.of(context).textPrimary,
+                                height: 20 / 15,
+                              ),
+                            ),
+                          ),
+                          // Who owns this conversation. Without it an agent
+                          // cannot tell from the list whether a chat is already
+                          // being handled by a colleague.
+                          if (contact.assignedAgentName != null) ...[
+                            const SizedBox(width: PiSpacing.space4),
+                            _AgentChip(name: contact.assignedAgentName!),
+                          ],
+                        ],
                       ),
                       if (lastChat != null && lastChat.deletedAt == null) ...[
                         const SizedBox(height: 2),
@@ -235,7 +250,9 @@ class _LastMessagePreview extends StatelessWidget {
         final body = meta?['text']?['body'] ?? '';
 
         return Text(
-          body,
+          // Markers stripped rather than rendered: a one-line preview has no
+          // room for styling, and raw asterisks read as noise.
+          WhatsappText.plain(body),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: GoogleFonts.plusJakartaSans(
@@ -301,5 +318,40 @@ class _StatusTick extends StatelessWidget {
       'delivered' => const Icon(LucideIcons.checkCheck, size: 13, color: PiPalette.ink400),
       _ => const Icon(LucideIcons.check, size: 13, color: PiPalette.ink400),
     };
+  }
+}
+
+/// Compact label naming the agent a conversation is assigned to.
+class _AgentChip extends StatelessWidget {
+  const _AgentChip({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = PiColors.of(context);
+
+    // First name only: the row is already tight, and the surname adds nothing
+    // when the point is simply "someone has this".
+    final short = name.split(' ').first;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: PiPalette.primary500.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        short,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: Sz.sp(context, 10),
+          fontWeight: FontWeight.w600,
+          color: PiPalette.primary500,
+          height: 1.2,
+        ),
+      ),
+    );
   }
 }

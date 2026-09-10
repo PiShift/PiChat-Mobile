@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
@@ -20,10 +21,16 @@ import 'package:pichat/core/theme/app_colors.dart';
 import 'package:pichat/core/theme/app_radius.dart';
 import 'package:pichat/core/theme/app_sizing.dart';
 import 'package:pichat/core/theme/app_spacing.dart';
+import 'package:pichat/core/utils/chat_date.dart';
+import 'package:pichat/features/chat/widgets/chat_date_chip.dart';
 import 'package:pichat/data/models/chat_model.dart';
+import 'package:pichat/features/chat/widgets/conversation_status_bar.dart';
+import 'package:pichat/features/chat/widgets/timeline_event_item.dart';
+import 'package:pichat/data/models/timeline_event_model.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/data/repositories/chat_repository.dart';
 import 'package:pichat/data/repositories/team_repository.dart';
+import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:drift/drift.dart' show OrderingTerm, OrderingMode;
 import 'package:pichat/features/chat/application/main_controller.dart';
@@ -46,20 +53,46 @@ class ChatThread extends ConsumerStatefulWidget {
   @override
   ConsumerState<ChatThread> createState() => _ChatThreadState();
 }
+
 class _ChatThreadState extends ConsumerState<ChatThread>
     with WidgetsBindingObserver {
   final ItemScrollController _itemScrollController = ItemScrollController();
-  final ItemPositionsListener _itemPositionsListener = ItemPositionsListener.create();
+  final ItemPositionsListener _itemPositionsListener =
+      ItemPositionsListener.create();
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _messageFocusNode = FocusNode();
 
-  bool _hasScrolledToInitialPosition = false;
   bool _showScrollToBottom = false;
   bool _showAttachmentPanel = false;
   bool _showEmojiPanel = false;
   bool _isAtBottom = true;
+
+  /// Index the thread should open at, decided once from the first real batch of
+  /// messages: the first unread message, or the newest one when all are read.
+  int? _initialScrollTarget;
+
+  /// Id of the newest message we have rendered. Used to tell an appended
+  /// message apart from older history arriving at the top - the latter must
+  /// never move the viewport.
+  int? _newestMessageId;
+  bool _initialPositionApplied = false;
+
+  /// Messages that arrived while the reader was scrolled away from the bottom.
+  /// Shown as a count on the jump-to-bottom button and cleared when they get
+  /// there.
+  int _pendingNewMessages = 0;
+
+  /// Messages this screen has already marked read, so repeated scroll frames
+  /// do not re-write the same rows.
+  final Set<int> _seenMessageIds = <int>{};
+
+  /// Captured in initState: dispose() runs after `ref` stops being usable.
+  late final ChatRepository _chatRepoForDispose;
+  late final MainDataController _listNotifierForDispose;
   bool _isInitialLoading = true;
-  int _lastRenderedCount = 0;
+
+  /// Day shown by the chip pinned at the top of the thread.
+  String? _stickyDateLabel;
 
   // Cached notifier so dispose() can safely clear without accessing ref.
   late StateController<int?> _activeContactNotifier;
@@ -72,13 +105,17 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   /// Whether the input field currently has any text. Drives the swap
   /// between the mic button (idle/empty) and the send button (typing).
   bool _hasText = false;
+
   /// True while audio is actively being captured by the microphone.
   bool _isRecording = false;
+
   /// Path to the freshly recorded audio file once the user stops the
   /// recording. Non-null means we're in "review before send" mode.
   String? _recordedAudioPath;
+
   /// Final length of the recording, captured at stop time.
   Duration _recordedDuration = Duration.zero;
+
   /// Live elapsed time while [_isRecording] is true.
   Duration _recordElapsed = Duration.zero;
   Timer? _recordTicker;
@@ -95,6 +132,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     // Cache the notifier before any async work so dispose() can access it
     // safely even after the widget is deactivated (ref is no longer usable).
     _activeContactNotifier = ref.read(activeContactIdProvider.notifier);
+    _chatRepoForDispose = ref.read(chatRepositoryProvider);
+    _listNotifierForDispose = ref.read(mainDataProvider.notifier);
 
     // Tell the rest of the app which contact is currently open so
     // ReverbService can suppress in-app banners for this conversation.
@@ -108,7 +147,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     _messageController.addListener(_onTextChanged);
 
     _previewStateSub = _previewPlayer.playerStateStream.listen((s) {
-      final playing = s.playing && s.processingState != ProcessingState.completed;
+      final playing =
+          s.playing && s.processingState != ProcessingState.completed;
       if (playing != _previewIsPlaying && mounted) {
         setState(() => _previewIsPlaying = playing);
       }
@@ -130,6 +170,14 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   @override
   void dispose() {
+    /*
+     * Leaving a conversation means it has been read. Marking only what scrolled
+     * past the viewport left the reader with unread markers on messages they
+     * had already moved beyond, so anything still queued is flushed and the
+     * rest of the conversation is closed out in the same batch.
+     */
+    _markWholeConversationRead();
+
     // Clear the active contact so banners resume for future incoming messages.
     // Use the cached notifier — ref is unsafe after the widget is deactivated.
     _activeContactNotifier.state = null;
@@ -146,7 +194,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       // without sending it.
       final f = File(_recordedAudioPath!);
       if (f.existsSync()) {
-        try { f.deleteSync(); } catch (_) {}
+        try {
+          f.deleteSync();
+        } catch (_) {}
       }
     }
     super.dispose();
@@ -263,13 +313,13 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     // First get current ticket to know current agent
     final teamRepo = ref.read(teamRepositoryProvider);
     Ticket? currentTicket;
-    
+
     try {
       currentTicket = await teamRepo.getTicket(widget.contact.uuid);
     } catch (_) {}
-    
+
     if (!mounted) return;
-    
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -284,10 +334,21 @@ class _ChatThreadState extends ConsumerState<ChatThread>
           onAgentSelected: (agent) async {
             try {
               await teamRepo.assignToAgent(widget.contact.uuid, agent.id);
+
+              // Reflect the new owner locally so the header and the chat list
+              // update immediately instead of waiting for the next full
+              // contacts refresh.
+              await ref.read(appDatabaseProvider).setContactAssignment(
+                    contactId: widget.contact.id,
+                    agentId: agent.id,
+                    agentName: agent.name,
+                  );
+
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('chat.snackbar.assigned_to'.tr(namedArgs: {'name': agent.name})),
+                    content: Text('chat.snackbar.assigned_to'
+                        .tr(namedArgs: {'name': agent.name})),
                     backgroundColor: PiPalette.success500,
                   ),
                 );
@@ -296,7 +357,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('chat.snackbar.failed_to_assign'.tr(namedArgs: {'error': e.toString()})),
+                    content: Text('chat.snackbar.failed_to_assign'
+                        .tr(namedArgs: {'error': e.toString()})),
                     backgroundColor: PiPalette.error500,
                   ),
                 );
@@ -312,13 +374,13 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   void _showStatusPicker() async {
     final teamRepo = ref.read(teamRepositoryProvider);
     Ticket? currentTicket;
-    
+
     try {
       currentTicket = await teamRepo.getTicket(widget.contact.uuid);
     } catch (_) {}
-    
+
     if (!mounted) return;
-    
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -330,7 +392,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('chat.snackbar.status_changed'.tr(namedArgs: {'status': status})),
+                  content: Text('chat.snackbar.status_changed'
+                      .tr(namedArgs: {'status': status})),
                   backgroundColor: PiPalette.success500,
                 ),
               );
@@ -339,7 +402,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('chat.snackbar.failed_to_update_status'.tr(namedArgs: {'error': e.toString()})),
+                  content: Text('chat.snackbar.failed_to_update_status'
+                      .tr(namedArgs: {'error': e.toString()})),
                   backgroundColor: PiPalette.error500,
                 ),
               );
@@ -353,7 +417,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   /// Close the ticket
   void _closeTicket() async {
     final teamRepo = ref.read(teamRepositoryProvider);
-    
+
     try {
       await teamRepo.updateTicketStatus(widget.contact.uuid, 'closed');
       if (mounted) {
@@ -368,7 +432,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('chat.snackbar.failed_to_close_ticket'.tr(namedArgs: {'error': e.toString()})),
+            content: Text('chat.snackbar.failed_to_close_ticket'
+                .tr(namedArgs: {'error': e.toString()})),
             backgroundColor: PiPalette.error500,
           ),
         );
@@ -378,24 +443,21 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   Future<void> _fetchNewMessages() async {
     final chatRepo = ref.read(chatRepositoryProvider);
-    final db = ref.read(appDatabaseProvider);
 
-    // Use the last message ID that is actually in the LOCAL database rather
-    // than widget.contact.lastChatId. After refreshContacts() runs on resume,
-    // the contact object may already have a newer lastChatId from the server
-    // even though that message hasn't been written to the local DB yet. If we
-    // pass that id as afterId we'd ask "give me messages AFTER the latest one",
-    // which returns nothing and leaves the chat thread blank.
-    final lastLocalRow = await (db.select(db.chats)
-          ..where((t) => t.contactId.equals(widget.contact.id))
-          ..orderBy([(t) => OrderingTerm(expression: t.id, mode: OrderingMode.desc)])
-          ..limit(1))
-        .getSingleOrNull();
-
+    // Deliberately NOT an `afterId` sync.
+    //
+    // `afterId` was the highest local message id, which cannot heal a gap in
+    // the middle of a thread: if Reverb delivered the newest messages live
+    // while an earlier stretch was missed (the app was closed, or a broadcast
+    // was dropped), then "give me everything after the newest id I hold"
+    // returns nothing and the hole stays forever — pull-to-refresh included.
+    //
+    // Re-reading the newest page instead costs the same single request and is
+    // an idempotent upsert, so any gap inside that window fills itself. Older
+    // gaps are handled by the scroll-up loader, which pages by `beforeId`.
     try {
       await chatRepo.getMessages(
         widget.contact.id,
-        afterId: lastLocalRow?.id,
         forceRefresh: true,
       );
     } finally {
@@ -416,26 +478,76 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     // Find the oldest message currently in the local DB for this contact.
     final oldestLocalRow = await (db.select(db.chats)
           ..where((t) => t.contactId.equals(widget.contact.id))
-          ..orderBy([(t) => OrderingTerm(expression: t.id, mode: OrderingMode.asc)])
+          ..orderBy(
+              [(t) => OrderingTerm(expression: t.id, mode: OrderingMode.asc)])
           ..limit(1))
         .getSingleOrNull();
 
+    // Remember where the reader is so the same message can be put back under
+    // their eye after older history is inserted above it.
+    final anchor = _itemPositionsListener.itemPositions.value.isEmpty
+        ? null
+        : _itemPositionsListener.itemPositions.value.reduce(
+            (a, b) => a.index < b.index ? a : b,
+          );
+
     try {
-      final fetched = await chatRepo.getMessages(
+      await chatRepo.getMessages(
         widget.contact.id,
         beforeId: oldestLocalRow?.id,
         forceRefresh: true,
       );
-      if (mounted) {
-        setState(() {
-          // If the server returned fewer than perPage items there are no more.
-          _hasMoreOlderMessages = fetched.length >= 20;
-          _isLoadingOlder = false;
-        });
+
+      // Did history actually get longer? Counting the returned rows was
+      // unreliable: the endpoint returns timeline entries, and tickets and
+      // notes among them made a full page look short, which permanently
+      // stopped paging after the first fetch.
+      final oldestNow = await (db.select(db.chats)
+            ..where((t) => t.contactId.equals(widget.contact.id))
+            ..orderBy([
+              (t) => OrderingTerm(expression: t.id, mode: OrderingMode.asc),
+            ])
+            ..limit(1))
+          .getSingleOrNull();
+
+      final grew = oldestNow != null && oldestNow.id != oldestLocalRow?.id;
+
+      if (!mounted) return;
+
+      setState(() {
+        _hasMoreOlderMessages = grew;
+        _isLoadingOlder = false;
+      });
+
+      // Hold the reader's place: inserting above them would otherwise shift
+      // everything down by however many messages just arrived.
+      if (grew && anchor != null) {
+        final inserted = await _countMessagesBefore(db, oldestLocalRow?.id);
+
+        if (inserted > 0 && _itemScrollController.isAttached) {
+          _itemScrollController.jumpTo(
+            index: anchor.index + inserted,
+            alignment: anchor.itemLeadingEdge,
+          );
+        }
       }
     } catch (_) {
       if (mounted) setState(() => _isLoadingOlder = false);
     }
+  }
+
+  /// How many messages now sit before [beforeId] - i.e. how many were just
+  /// inserted above what the reader was looking at.
+  Future<int> _countMessagesBefore(AppDatabase db, int? beforeId) async {
+    if (beforeId == null) return 0;
+
+    // Filtered in Dart rather than SQL to stay with the query style used
+    // elsewhere in this file and avoid pulling drift's expression operators in.
+    final rows = await (db.select(db.chats)
+          ..where((t) => t.contactId.equals(widget.contact.id)))
+        .get();
+
+    return rows.where((r) => r.deletedAt == null && r.id < beforeId).length;
   }
 
   void _visibleItemsListener() {
@@ -445,97 +557,195 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     // Must apply the same _hasRenderableContent filter used by ScrollablePositionedList
     // so that position indices (0..N-1 of filtered items) map to the correct messages.
     final messages = ref.read(messagesProvider(widget.contact.id)).maybeWhen(
-      data: (List<Chat> m) => m.where(_hasRenderableContent).toList(),
-      orElse: () => <Chat>[],
-    );
+          data: (List<Chat> m) => m.where(_hasRenderableContent).toList(),
+          orElse: () => <Chat>[],
+        );
     if (messages.isEmpty) return;
 
     // Determine visible indices roughly in the middle of the viewport
-    final firstVisibleIndex = positions.map((p) => p.index).reduce((a, b) => a < b ? a : b);
-    final lastVisibleIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
+    final firstVisibleIndex =
+        positions.map((p) => p.index).reduce((a, b) => a < b ? a : b);
 
     // Load older messages when the user scrolls to the top (index 0 = loader item, index 1 = oldest message).
     if (firstVisibleIndex <= 1 && !_isInitialLoading) {
       _loadOlderMessages();
     }
 
-    // Mark all visible *inbound* messages as read. Outbound messages live
-    // with is_read=false until the recipient reads them; if we included them
-    // here we'd both fire spurious read-receipt API calls and decrement the
-    // contact's unread count for our own sent messages.
-    // Subtract 1 from indices to account for the top loader item at index 0.
-    final firstMsgIndex = (firstVisibleIndex - 1).clamp(0, messages.length);
-    final lastMsgIndex = lastVisibleIndex.clamp(0, messages.length);
-    final visibleMessages = messages
-        .sublist(firstMsgIndex, lastMsgIndex)
-        .where((m) => m.type == 'inbound' && !m.isRead)
+    // The day the pinned chip should show: whichever message is nearest the
+    // top edge without being scrolled past it. Using the topmost *visible*
+    // message rather than the first index means the chip changes exactly as a
+    // day group crosses the top, the way the inline separator would if it
+    // could stay put.
+    final onScreen = positions
+        .where((p) => p.index >= 1 && p.index <= messages.length)
         .toList();
 
-    if (visibleMessages.isNotEmpty) {
-      _markMessagesAsRead(visibleMessages);
+    if (onScreen.isNotEmpty) {
+      final topMost = onScreen.reduce(
+        (a, b) => a.itemLeadingEdge <= b.itemLeadingEdge ? a : b,
+      );
+
+      final messageIndex = topMost.index - 1;
+      final message = messages[messageIndex];
+      final label = chatDateLabel(message.createdAt);
+
+      // Suppress the pin while the real separator is still on screen. The
+      // pinned chip only stands in for a separator that has scrolled past the
+      // top edge; showing both puts two identical chips a few pixels apart.
+      final previous =
+          messageIndex == 0 ? null : messages[messageIndex - 1].createdAt;
+      final separatorStillVisible =
+          isNewDay(previous, message.createdAt) && topMost.itemLeadingEdge >= 0;
+
+      final next = separatorStillVisible ? null : label;
+
+      if (next != _stickyDateLabel && mounted) {
+        setState(() => _stickyDateLabel = next);
+      }
     }
 
-    // Show FAB only when the user has scrolled at least ~3 items away from the bottom.
-    // +1 because itemCount = messages.length + 1 (header loader at index 0).
-    final lastIndex = messages.length; // last real message is at index messages.length (0-based + header)
-    final maxVisibleIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
-    final isNearBottom = lastIndex - maxVisibleIndex < 3;
-    _isAtBottom = isNearBottom;
-    if (!isNearBottom && !_showScrollToBottom) {
+    /*
+     * Read state and "am I at the bottom" both work off the items' real edges
+     * rather than their indices. itemLeadingEdge/itemTrailingEdge are fractions
+     * of the viewport - 0 is its top, 1 its bottom - so a message only counts
+     * as seen once its top has actually come into view, not merely because it
+     * appears in the reported position list while peeking in at the edge.
+     */
+    bool isMeaningfullyVisible(ItemPosition p) => p.itemLeadingEdge < 0.85;
+
+    // Mark seen *inbound* messages as read. Outbound messages live with
+    // is_read=false until the recipient reads them; including them here would
+    // fire spurious read receipts and decrement our own unread count.
+    // Index 0 is the top loader, so message i sits at index i + 1.
+    final seen = <Chat>[];
+
+    for (final position in positions) {
+      if (position.index == 0 || !isMeaningfullyVisible(position)) continue;
+
+      final messageIndex = position.index - 1;
+
+      if (messageIndex < 0 || messageIndex >= messages.length) continue;
+
+      final msg = messages[messageIndex];
+
+      if (msg.type == 'inbound' && !msg.isRead) {
+        seen.add(msg);
+      }
+    }
+
+    if (seen.isNotEmpty) {
+      _markMessagesAsRead(seen);
+    }
+
+    /*
+     * At the bottom means the newest message is fully on screen. The old test
+     * allowed three items of slack, so a message landing one or two rows below
+     * the fold still counted as "at the bottom": the jump-to-bottom button
+     * never appeared and the counter never moved - exactly the case of an agent
+     * sitting on the newest message when another one arrives.
+     */
+    final lastItemIndex = messages.length;
+    ItemPosition? lastPosition;
+
+    for (final position in positions) {
+      if (position.index == lastItemIndex) {
+        lastPosition = position;
+        break;
+      }
+    }
+
+    final isAtBottom =
+        lastPosition != null && lastPosition.itemTrailingEdge <= 1.02;
+
+    _isAtBottom = isAtBottom;
+
+    if (!isAtBottom && !_showScrollToBottom) {
       setState(() => _showScrollToBottom = true);
-    } else if (isNearBottom && _showScrollToBottom) {
-      setState(() => _showScrollToBottom = false);
+    } else if (isAtBottom && (_showScrollToBottom || _pendingNewMessages > 0)) {
+      // The newest message is fully visible, so it has been seen.
+      setState(() {
+        _showScrollToBottom = false;
+        _pendingNewMessages = 0;
+      });
     }
   }
 
-  void _markMessagesAsRead(List<Chat> msgs) async {
-    final chatRepo = ref.read(chatRepositoryProvider);
+  /// Queue messages the reader has now seen.
+  ///
+  /// Marking happens in two speeds on purpose. Locally it is immediate, so the
+  /// unread markers clear under the reader's thumb as they scroll. The write
+  /// itself is batched: this used to fire a request on every scroll tick that
+  /// revealed an unread message, which on a thread with dozens of them meant a
+  /// burst of calls over mobile data.
+  void _markMessagesAsRead(List<Chat> msgs) {
+    // Only the ones this screen has not already handled - the positions
+    // listener fires on every scroll frame and would otherwise re-write the
+    // same rows over and over.
+    final fresh = msgs.where((m) => _seenMessageIds.add(m.id)).toList();
 
-    // Convert to ChatData but only update isRead
-    final updates = msgs.map((msg) {
-      return msg.copyWith(isRead: true); // Your Chat class should have copyWith
-    }).toList();
+    if (fresh.isEmpty) return;
 
-    await chatRepo.markMessagesAsRead(updates);
+    /*
+     * Written straight through, so unread markers clear under the reader's
+     * thumb as they scroll. The repository already holds the network side back
+     * and sends these in batches, so being immediate here costs nothing extra
+     * on the wire.
+     */
+    ref.read(chatRepositoryProvider).markMessagesAsRead(
+          fresh.map((msg) => msg.copyWith(isRead: true)).toList(),
+        );
 
-    // Update the contact's unread count in the contacts list
     ref.read(mainDataProvider.notifier).decreaseUnreadCount(
-      widget.contact.id,
-      msgs.length,
-    );
+          widget.contact.id,
+          fresh.length,
+        );
+  }
+
+  /// Close out the conversation as the reader leaves.
+  ///
+  /// Deliberately does not touch `ref`: this runs from dispose(), by which time
+  /// the widget's ref is no longer usable, so it works off the references
+  /// captured in initState.
+  void _markWholeConversationRead() {
+    final contactId = widget.contact.id;
+    final chatRepo = _chatRepoForDispose;
+    final listNotifier = _listNotifierForDispose;
+
+    Future(() async {
+      try {
+        await chatRepo.markConversationRead(contactId);
+        listNotifier.updateContactUnreadCount(contactId, 0);
+      } catch (e) {
+        // Nothing to show the user - they have already left the screen.
+        print('Could not finish marking the conversation read: $e');
+      }
+    });
   }
 
   void _scrollToBottom() {
     final messages = ref.read(messagesProvider(widget.contact.id)).maybeWhen(
-      data: (messages) => messages.where(_hasRenderableContent).toList(),
-      orElse: () => <Chat>[],
-    );
+          data: (messages) => messages.where(_hasRenderableContent).toList(),
+          orElse: () => <Chat>[],
+        );
     if (messages.isNotEmpty && _itemScrollController.isAttached) {
-      // Use jumpTo instead of scrollTo: animated scrollTo uses spring physics
-      // that can overshoot and visually bounce the list.
-      // +1 because index 0 is the top loader header item.
-      _itemScrollController.jumpTo(index: messages.length);
+      /*
+       * Aligning the footer sentinel's leading edge to the bottom of the
+       * viewport leaves the last real message resting exactly on that edge.
+       *
+       * Aligning the message itself cannot work: alignment 0 put its leading
+       * edge at the top, so the list slid there and settled back - a visible
+       * jump - while alignment 1 pushed the message itself off the bottom.
+       *
+       * jumpTo rather than scrollTo: animated scrolling here uses spring
+       * physics that overshoot and bounce.
+       */
+      _itemScrollController.jumpTo(
+        index: messages.length + 1,
+        alignment: 1.0,
+      );
     }
   }
 
-  /// Jump to the bottom without animation — used right after sending so the
-  /// user immediately sees their own message even if they were scrolled up.
-  // ignore: unused_element
-  void _jumpToBottom() {
-    final messages = ref.read(messagesProvider(widget.contact.id)).maybeWhen(
-      data: (messages) => messages.where(_hasRenderableContent).toList(),
-      orElse: () => <Chat>[],
-    );
-    if (messages.isNotEmpty && _itemScrollController.isAttached) {
-      _itemScrollController.jumpTo(index: messages.length);
-    }
-  }
-  void _scrollToFirstUnread(List<Chat> messages) {
-    if (_hasScrolledToInitialPosition) return;
-
-    // Initial position is already set via initialScrollIndex — just mark done.
-    _hasScrolledToInitialPosition = true;
-  }
 
   /// True when a message has at least one renderable piece of content
   /// (text body, media, header, or interactive buttons). Used to hide
@@ -552,7 +762,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     // Unsupported message types (WhatsApp error 131051, stickers, polls, etc.)
     // should still render as a placeholder so the chat thread isn't blank.
     if (type == 'unsupported') return true;
-    if (meta['errors'] is List && (meta['errors'] as List).isNotEmpty) return true;
+    if (meta['errors'] is List && (meta['errors'] as List).isNotEmpty)
+      return true;
     // Location/contacts payloads are always renderable.
     if (type == 'location' || type == 'contacts') return true;
     final textNode = meta['text'];
@@ -611,9 +822,38 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   }
 
   /// Compute the index to open at: first unread, or last message.
+  /// Buckets events by the index of the message they follow.
+  ///
+  /// Key -1 holds everything older than the first message, so a call or an
+  /// assignment on a conversation whose messages have not loaded yet still
+  /// appears rather than being dropped. Both lists arrive oldest-first, so this
+  /// is a single walk rather than a search per event.
+  Map<int, List<TimelineEvent>> _groupEventsByAnchor(
+    List<Chat> messages,
+    List<TimelineEvent> events,
+  ) {
+    if (events.isEmpty) return const {};
+
+    final grouped = <int, List<TimelineEvent>>{};
+    var messageIndex = 0;
+
+    for (final event in events) {
+      // Advance past every message older than this event.
+      while (messageIndex < messages.length &&
+          !messages[messageIndex].createdAt.isAfter(event.createdAt)) {
+        messageIndex++;
+      }
+
+      grouped.putIfAbsent(messageIndex - 1, () => []).add(event);
+    }
+
+    return grouped;
+  }
+
   int _initialIndex(List<Chat> messages) {
     if (messages.isEmpty) return 0;
-    final firstUnread = messages.indexWhere((m) => m.type == 'inbound' && !m.isRead);
+    final firstUnread =
+        messages.indexWhere((m) => m.type == 'inbound' && !m.isRead);
     return firstUnread != -1 ? firstUnread : messages.length - 1;
   }
 
@@ -628,15 +868,65 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     ref.listen<AsyncValue<List<Chat>>>(messagesProvider(widget.contact.id),
         (prev, next) {
       next.whenData((all) {
-        final visible = all.where(_hasRenderableContent).length;
-        if (visible > _lastRenderedCount && _isAtBottom) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            // Re-check _isAtBottom — user may have scrolled up between scheduling
-            // and execution. Also skip if already showing the last item.
-            if (mounted && _isAtBottom) _scrollToBottom();
-          });
+        final visible = all.where(_hasRenderableContent).toList();
+        final newestId = visible.isEmpty ? null : visible.last.id;
+
+        /*
+         * The first batch of messages needs no scrolling at all: the list mounts
+         * directly at its initialScrollIndex. Treating that first arrival as
+         * "the conversation grew" is what made the thread visibly fly to the
+         * bottom and settle back every time it was opened - _isAtBottom starts
+         * true and _lastRenderedCount starts at zero, so any first emission
+         * looked like growth while pinned to the bottom.
+         */
+        if (!_initialPositionApplied) {
+          _initialPositionApplied = true;
+          _newestMessageId = newestId;
+
+          return;
         }
-        _lastRenderedCount = visible;
+
+        // Only something arriving at the end should pull the view down. Older
+        // history paged in at the top grows the list too, and used to yank the
+        // reader away from what they were reading.
+        final appended = newestId != null && newestId != _newestMessageId;
+
+        _newestMessageId = newestId;
+
+        if (!appended) return;
+
+        /*
+         * An arriving message is never allowed to move the viewport. Someone
+         * reading back through the history must stay exactly where they are,
+         * which is what WhatsApp does: the message is appended quietly and the
+         * jump-to-bottom button carries a count until the reader goes to it.
+         *
+         * The one exception is a message we sent ourselves - the composer just
+         * cleared, so the sender expects to see it land.
+         */
+        final newest = visible.last;
+
+        if (newest.type == 'outbound') {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _scrollToBottom();
+          });
+
+          return;
+        }
+
+        /*
+         * Counted unconditionally, not gated on _isAtBottom. That flag still
+         * describes the layout from *before* this message existed, and a
+         * message arriving while the reader sits at the bottom lands below the
+         * fold - so the first one was never counted and only the second showed
+         * up as "1".
+         *
+         * The positions listener resets this to zero the moment the newest
+         * message is genuinely fully visible, so a message that does land in
+         * view corrects itself on the next frame rather than needing to be
+         * predicted here.
+         */
+        setState(() => _pendingNewMessages += 1);
       });
     });
 
@@ -652,178 +942,297 @@ class _ChatThreadState extends ConsumerState<ChatThread>
           });
         },
         child: Column(
-        children: [
-          _buildChatAppBar(context),
-          Divider(height: 1, thickness: 1, color: PiColors.of(context).divider),
-          // Messages list (expanded to fill available space)
-          Expanded(
-            child: messagesAsync.when(
-              data: (allMessages) {
-                // Drop empty bubbles: no text, no caption, no media, no header,
-                // no buttons. These can come from system events or partial
-                // template payloads and just render as a blank box.
-                final messages = allMessages.where(_hasRenderableContent).toList();
+          children: [
+            _buildChatAppBar(context),
+            ConversationStatusBar(contact: widget.contact),
+            Divider(
+                height: 1, thickness: 1, color: PiColors.of(context).divider),
+            // Messages list (expanded to fill available space)
+            Expanded(
+              child: messagesAsync.when(
+                data: (allMessages) {
+                  // Drop empty bubbles: no text, no caption, no media, no header,
+                  // no buttons. These can come from system events or partial
+                  // template payloads and just render as a blank box.
+                  final messages =
+                      allMessages.where(_hasRenderableContent).toList();
 
-                // Show a spinner while the first API fetch is in flight.
-                // Drift immediately emits [] from an empty table, so the
-                // provider reaches data([]) before any messages are loaded —
-                // without this guard the user sees a white screen instead of
-                // a loading indicator.
-                if (_isInitialLoading && messages.isEmpty) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                  // Calls, ticket changes and notes. Anchored to the message
+                  // each one follows rather than given list slots of their own,
+                  // so scroll positioning stays indexed on messages.
+                  final events = ref
+                      .watch(timelineEventsProvider(widget.contact.id))
+                      .maybeWhen(
+                        data: (rows) => rows,
+                        orElse: () => const <TimelineEvent>[],
+                      );
+                  final eventsByAnchor = _groupEventsByAnchor(messages, events);
 
-                // Drift already has messages — initial load is done.
-                // Use a postFrameCallback to avoid calling setState during build.
-                if (_isInitialLoading && messages.isNotEmpty) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) setState(() => _isInitialLoading = false);
-                  });
-                }
+                  // Show a spinner while the first API fetch is in flight.
+                  // Drift immediately emits [] from an empty table, so the
+                  // provider reaches data([]) before any messages are loaded —
+                  // without this guard the user sees a white screen instead of
+                  // a loading indicator.
+                  if (_isInitialLoading && messages.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-                // All messages were filtered out (e.g. unsupported type, system
-                // events). Show a placeholder rather than a blank white screen.
-                if (messages.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(LucideIcons.messageCircle, size: 48, color: PiColors.of(context).ink400),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No messages yet',
-                          style: TextStyle(color: PiColors.of(context).textSecondary, fontSize: 15),
-                        ),
-                      ],
-                    ),
-                  );
-                }
+                  // Drift already has messages — initial load is done.
+                  // Use a postFrameCallback to avoid calling setState during build.
+                  if (_isInitialLoading && messages.isNotEmpty) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) setState(() => _isInitialLoading = false);
+                    });
+                  }
 
-                final reactionsByWamId = _collectReactions(allMessages);
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _scrollToFirstUnread(messages);
-                });
+                  // All messages were filtered out (e.g. unsupported type, system
+                  // events). Show a placeholder rather than a blank white screen.
+                  if (messages.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(LucideIcons.messageCircle,
+                              size: 48, color: PiColors.of(context).ink400),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No messages yet',
+                            style: TextStyle(
+                                color: PiColors.of(context).textSecondary,
+                                fontSize: 15),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
 
-                // Compute initial position once — used by ScrollablePositionedList
-                // to render directly at the right spot with no visible scroll.
-                final startIndex = _hasScrolledToInitialPosition
-                    ? null
-                    : _initialIndex(messages);
-                final isAtBottom = startIndex == null ||
-                    startIndex == messages.length - 1;
+                  final reactionsByWamId = _collectReactions(allMessages);
 
-                return Stack(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: RefreshIndicator(
-                        onRefresh: _fetchNewMessages,
-                        child: ScrollablePositionedList.builder(
-                          // +1 for the top loader/sentinel item at index 0.
-                          itemCount: messages.length + 1,
-                          initialScrollIndex: startIndex != null ? startIndex + 1 : messages.length,
-                          initialAlignment: isAtBottom ? 0.0 : 0.3,
-                          physics: const ClampingScrollPhysics(),
-                          itemBuilder: (context, index) {
-                            // Index 0 is the top loader.
-                            if (index == 0) {
-                              return _isLoadingOlder
-                                  ? const Padding(
-                                      padding: EdgeInsets.symmetric(vertical: 16),
-                                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                                    )
-                                  : const SizedBox.shrink();
-                            }
-                            final msg = messages[index - 1];
-                            final isUnread = msg.type == 'inbound' && !msg.isRead;
-                            final reactions = msg.wamId != null
-                                ? reactionsByWamId[msg.wamId!]
-                                : null;
-                            return ChatMessageItem(
-                              message: msg,
-                              contactUuid: widget.contact.uuid,
-                              isUnread: isUnread,
-                              reactions: reactions
-                                      ?.map((r) => ChatReactionInfo(
-                                            emoji: r.emoji,
-                                            fromMe: r.fromMe,
-                                          ))
-                                      .toList() ??
-                                  const [],
-                            );
-                          },
-                          itemScrollController: _itemScrollController,
-                          itemPositionsListener: _itemPositionsListener,
+                  /*
+                 * Decide where the thread opens exactly once, from the first
+                 * real batch of messages, and remember it. Recomputing this on
+                 * every rebuild meant the target moved as messages streamed in.
+                 *
+                 * The list renders straight at this index, so there is no
+                 * scroll to watch - the reader lands on their first unread
+                 * message, or at the newest one when everything is read.
+                 */
+                  if (_initialScrollTarget == null) {
+                    _initialScrollTarget = _initialIndex(messages);
+
+                    // Opening part-way up the thread means we are not pinned to
+                    // the bottom, so later arrivals must not drag the view down.
+                    _isAtBottom = _initialScrollTarget == messages.length - 1;
+                  }
+
+                  final startIndex =
+                      _initialScrollTarget!.clamp(0, messages.length - 1);
+                  final isAtBottom = startIndex == messages.length - 1;
+
+                  return Stack(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: RefreshIndicator(
+                          onRefresh: _fetchNewMessages,
+                          child: ScrollablePositionedList.builder(
+                            // index 0 is the top loader; index messages.length + 1
+                            // is a footer sentinel used purely as a scroll target.
+                            itemCount: messages.length + 2,
+                            // +1 for the loader at index 0. When opening on an
+                            // unread message, leave it just below the top edge so
+                            // the messages above it read as already-seen context.
+                            initialScrollIndex: startIndex + 1,
+                            initialAlignment: isAtBottom ? 0.0 : 0.12,
+                            physics: const ClampingScrollPhysics(),
+                            itemBuilder: (context, index) {
+                              /*
+                               * A sentinel below the last message. Aligning to
+                               * it is what lets the jump-to-bottom land with the
+                               * last message fully on screen: alignment
+                               * positions an item's *leading* edge, so no
+                               * alignment of the message itself can rest its
+                               * bottom on the viewport bottom - putting the
+                               * footer's leading edge there does exactly that.
+                               */
+                              if (index == messages.length + 1) {
+                                return const SizedBox(height: 2);
+                              }
+
+                              // Index 0 is the top loader.
+                              if (index == 0) {
+                                return _isLoadingOlder
+                                    ? const Padding(
+                                        padding:
+                                            EdgeInsets.symmetric(vertical: 16),
+                                        child: Center(
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 2)),
+                                      )
+                                    : const SizedBox.shrink();
+                              }
+                              final messageIndex = index - 1;
+                              final msg = messages[messageIndex];
+                              final isUnread =
+                                  msg.type == 'inbound' && !msg.isRead;
+                              final reactions = msg.wamId != null
+                                  ? reactionsByWamId[msg.wamId!]
+                                  : null;
+
+                              final bubble = ChatMessageItem(
+                                message: msg,
+                                contactUuid: widget.contact.uuid,
+                                isUnread: isUnread,
+                                reactions: reactions
+                                        ?.map((r) => ChatReactionInfo(
+                                              emoji: r.emoji,
+                                              fromMe: r.fromMe,
+                                            ))
+                                        .toList() ??
+                                    const [],
+                              );
+
+                              // -1 carries anything that happened before the
+                              // first message, so an assignment or a call on a
+                              // brand-new conversation is not swallowed.
+                              final leading = messageIndex == 0
+                                  ? (eventsByAnchor[-1] ?? const [])
+                                  : const <TimelineEvent>[];
+                              final trailing =
+                                  eventsByAnchor[messageIndex] ?? const [];
+
+                              // Day separator above the first message of each
+                              // day. The pinned chip at the top of the list
+                              // shows the same label for whichever day is
+                              // currently under it.
+                              final previous = messageIndex == 0
+                                  ? null
+                                  : messages[messageIndex - 1].createdAt;
+                              final startsDay =
+                                  isNewDay(previous, msg.createdAt);
+
+                              if (leading.isEmpty &&
+                                  trailing.isEmpty &&
+                                  !startsDay) {
+                                return bubble;
+                              }
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (startsDay)
+                                    ChatDateSeparator(
+                                      label: chatDateLabel(msg.createdAt),
+                                    ),
+                                  for (final e in leading)
+                                    TimelineEventItem(event: e),
+                                  bubble,
+                                  for (final e in trailing)
+                                    TimelineEventItem(event: e),
+                                ],
+                              );
+                            },
+                            itemScrollController: _itemScrollController,
+                            itemPositionsListener: _itemPositionsListener,
+                          ),
                         ),
                       ),
-                    ),
-                    if (_showScrollToBottom)
-                      Positioned(
-                        bottom: 20,
-                        right: 20,
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            GestureDetector(
-                              onTap: _scrollToBottom,
-                              child: Container(
-                                width: 40,
-                                height: 40,
-                                decoration: const BoxDecoration(
-                                  color: PiPalette.primary500,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(LucideIcons.chevronDown, size: 22, color: PiPalette.white),
+                      // Pinned day chip. Sits above the list so the day group
+                      // currently under the top edge stays named even after its
+                      // inline separator has scrolled away — the separator and
+                      // this chip are the same widget, so the handover is
+                      // invisible.
+                      if (_stickyDateLabel != null)
+                        Positioned(
+                          top: 6,
+                          left: 0,
+                          right: 0,
+                          child: IgnorePointer(
+                            child: Center(
+                              child: ChatDateChip(
+                                label: _stickyDateLabel!,
+                                elevated: true,
                               ),
                             ),
-                            // Unread badge
-                            Builder(
-                              builder: (context) {
-                                final unreadCount = messagesAsync.value!
-                                    .where((m) => m.type == 'inbound' && !m.isRead)
-                                    .length;
-                                if (unreadCount == 0) return const SizedBox.shrink();
-                                return Positioned(
-                                  right: -4,
-                                  top: -4,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: PiPalette.ink900,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    constraints: const BoxConstraints(
-                                      minWidth: 20,
-                                      minHeight: 20,
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        '$unreadCount',
-                                        style: const TextStyle(
-                                          color: PiPalette.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      if (_showScrollToBottom || _pendingNewMessages > 0)
+                        Positioned(
+                          bottom: 20,
+                          right: 20,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() => _pendingNewMessages = 0);
+                                  _scrollToBottom();
+                                },
+                                child: Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: const BoxDecoration(
+                                    color: PiPalette.primary500,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(LucideIcons.chevronDown,
+                                      size: 22, color: PiPalette.white),
+                                ),
+                              ),
+                              // How many arrived while the reader was away
+                              // from the bottom. Previously this counted every
+                              // unread message in the conversation, so opening
+                              // a thread with sixty unread showed "60" and the
+                              // number never meant anything useful.
+                              Builder(
+                                builder: (context) {
+                                  final unreadCount = _pendingNewMessages;
+                                  if (unreadCount == 0) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return Positioned(
+                                    right: -4,
+                                    top: -4,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: PiPalette.ink900,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 20,
+                                        minHeight: 20,
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          '$unreadCount',
+                                          style: const TextStyle(
+                                            color: PiPalette.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                  ],
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, s) => Center(child: Text('chat.error.loading_messages'.tr(namedArgs: {'error': e.toString()}))),
+                    ],
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, s) => Center(
+                    child: Text('chat.error.loading_messages'
+                        .tr(namedArgs: {'error': e.toString()}))),
+              ),
             ),
-          ),
 
-          // Message input field at bottom
-          _buildMessageInput(),
-        ],
+            // Message input field at bottom
+            _buildMessageInput(),
+          ],
         ),
       ),
     );
@@ -831,163 +1240,180 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   Widget _buildChatAppBar(BuildContext context) {
     final colors = PiColors.of(context);
-    return SafeArea(
-      bottom: false,
-      child: Container(
-        color: colors.surfaceRaised,
-        height: 56,
-        child: Row(
-          children: [
-            // Back button
-            GestureDetector(
-              onTap: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go('/home/chats');
-                }
-              },
-              behavior: HitTestBehavior.opaque,
-              child: const SizedBox(
-                width: 48,
-                height: 56,
-                child: Center(
-                  child: Icon(LucideIcons.arrowLeft, size: 22),
+    /*
+     * The colour is painted outside the SafeArea so it continues behind the
+     * status bar. Previously the inset showed the scaffold background while the
+     * bar below it was surfaceRaised, leaving a visible seam along the top edge.
+     */
+    return Container(
+      color: colors.surfaceRaised,
+      child: SafeArea(
+        bottom: false,
+        child: SizedBox(
+          height: 56,
+          child: Row(
+            children: [
+              // Back button
+              GestureDetector(
+                onTap: () {
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/home/chats');
+                  }
+                },
+                behavior: HitTestBehavior.opaque,
+                child: const SizedBox(
+                  width: 48,
+                  height: 56,
+                  child: Center(
+                    child: Icon(LucideIcons.arrowLeft, size: 22),
+                  ),
                 ),
               ),
-            ),
-            // Avatar + name (tappable → contact details)
-            Expanded(
-              child: GestureDetector(
-                onTap: _showContactDetails,
-                behavior: HitTestBehavior.opaque,
-                child: Row(
-                  children: [
-                    _buildHeaderAvatar(),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            widget.contact.fullName ?? widget.contact.phone,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: Sz.sp(context, 15),
-                              fontWeight: FontWeight.w600,
-                              color: colors.textPrimary,
-                              height: 1.2,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (widget.contact.fullName != null)
+              // Avatar + name (tappable → contact details)
+              Expanded(
+                child: GestureDetector(
+                  onTap: _showContactDetails,
+                  behavior: HitTestBehavior.opaque,
+                  child: Row(
+                    children: [
+                      _buildHeaderAvatar(),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
                             Text(
-                              widget.contact.phone,
+                              widget.contact.fullName ?? widget.contact.phone,
                               style: GoogleFonts.plusJakartaSans(
-                                fontSize: Sz.sp(context, 12),
-                                color: colors.textSecondary,
+                                fontSize: Sz.sp(context, 15),
+                                fontWeight: FontWeight.w600,
+                                color: colors.textPrimary,
                                 height: 1.2,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                        ],
+                            if (widget.contact.fullName != null)
+                              Text(
+                                widget.contact.phone,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: Sz.sp(context, 12),
+                                  color: colors.textSecondary,
+                                  height: 1.2,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            // Call button
-            GestureDetector(
-              onTap: () {
-                context.push('/call/outbound', extra: {
-                  'uuid': widget.contact.uuid,
-                  'name': widget.contact.fullName ?? widget.contact.phone,
-                  'phone': widget.contact.phone,
-                });
-              },
-              behavior: HitTestBehavior.opaque,
-              child: SizedBox(
-                width: 44,
-                height: 56,
-                child: Center(
-                  child: Icon(LucideIcons.phone, size: 20, color: colors.textPrimary),
+              // Call button
+              GestureDetector(
+                onTap: () {
+                  context.push('/call/outbound', extra: {
+                    'uuid': widget.contact.uuid,
+                    'name': widget.contact.fullName ?? widget.contact.phone,
+                    'phone': widget.contact.phone,
+                  });
+                },
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: 44,
+                  height: 56,
+                  child: Center(
+                    child: Icon(LucideIcons.phone,
+                        size: 20, color: colors.textPrimary),
+                  ),
                 ),
               ),
-            ),
-            // Overflow menu
-            PopupMenuButton<String>(
-              icon: Icon(LucideIcons.ellipsisVertical, size: 20, color: colors.textPrimary),
-              onSelected: (value) {
-                if (value == 'media') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => MediaGalleryScreen(
-                        contactUuid: widget.contact.uuid,
-                        contactName: widget.contact.fullName ?? widget.contact.phone,
+              // Overflow menu
+              PopupMenuButton<String>(
+                icon: Icon(LucideIcons.ellipsisVertical,
+                    size: 20, color: colors.textPrimary),
+                onSelected: (value) {
+                  if (value == 'media') {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MediaGalleryScreen(
+                          contactUuid: widget.contact.uuid,
+                          contactName:
+                              widget.contact.fullName ?? widget.contact.phone,
+                        ),
                       ),
-                    ),
-                  );
-                } else {
-                  _handleMenuAction(value);
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'contact',
-                  child: Row(children: [
-                    Icon(LucideIcons.user, size: 18, color: PiColors.of(context).textSecondary),
-                    const SizedBox(width: 12),
-                    Text('chat.menu.contact_details'.tr()),
-                  ]),
-                ),
-                PopupMenuItem(
-                  value: 'media',
-                  child: Row(children: [
-                    Icon(LucideIcons.image, size: 18, color: PiColors.of(context).textSecondary),
-                    const SizedBox(width: 12),
-                    Text('chat.tooltip.media_gallery'.tr()),
-                  ]),
-                ),
-                PopupMenuItem(
-                  value: 'template',
-                  child: Row(children: [
-                    Icon(LucideIcons.fileText, size: 18, color: PiColors.of(context).textSecondary),
-                    const SizedBox(width: 12),
-                    Text('chat.menu.send_template'.tr()),
-                  ]),
-                ),
-                const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: 'assign',
-                  child: Row(children: [
-                    Icon(LucideIcons.userPlus, size: 18, color: PiColors.of(context).textSecondary),
-                    const SizedBox(width: 12),
-                    Text('chat.menu.assign_to_agent'.tr()),
-                  ]),
-                ),
-                PopupMenuItem(
-                  value: 'status',
-                  child: Row(children: [
-                    Icon(LucideIcons.flag, size: 18, color: PiColors.of(context).textSecondary),
-                    const SizedBox(width: 12),
-                    Text('chat.menu.change_status'.tr()),
-                  ]),
-                ),
-                const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: 'close',
-                  child: Row(children: [
-                    Icon(LucideIcons.circleCheck, size: 18, color: PiPalette.success500),
-                    const SizedBox(width: 12),
-                    Text('chat.menu.close_ticket'.tr(), style: TextStyle(color: PiPalette.success500)),
-                  ]),
-                ),
-              ],
-            ),
-            const SizedBox(width: 4),
-          ],
+                    );
+                  } else {
+                    _handleMenuAction(value);
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'contact',
+                    child: Row(children: [
+                      Icon(LucideIcons.user,
+                          size: 18, color: PiColors.of(context).textSecondary),
+                      const SizedBox(width: 12),
+                      Text('chat.menu.contact_details'.tr()),
+                    ]),
+                  ),
+                  PopupMenuItem(
+                    value: 'media',
+                    child: Row(children: [
+                      Icon(LucideIcons.image,
+                          size: 18, color: PiColors.of(context).textSecondary),
+                      const SizedBox(width: 12),
+                      Text('chat.tooltip.media_gallery'.tr()),
+                    ]),
+                  ),
+                  PopupMenuItem(
+                    value: 'template',
+                    child: Row(children: [
+                      Icon(LucideIcons.fileText,
+                          size: 18, color: PiColors.of(context).textSecondary),
+                      const SizedBox(width: 12),
+                      Text('chat.menu.send_template'.tr()),
+                    ]),
+                  ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: 'assign',
+                    child: Row(children: [
+                      Icon(LucideIcons.userPlus,
+                          size: 18, color: PiColors.of(context).textSecondary),
+                      const SizedBox(width: 12),
+                      Text('chat.menu.assign_to_agent'.tr()),
+                    ]),
+                  ),
+                  PopupMenuItem(
+                    value: 'status',
+                    child: Row(children: [
+                      Icon(LucideIcons.flag,
+                          size: 18, color: PiColors.of(context).textSecondary),
+                      const SizedBox(width: 12),
+                      Text('chat.menu.change_status'.tr()),
+                    ]),
+                  ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: 'close',
+                    child: Row(children: [
+                      Icon(LucideIcons.circleCheck,
+                          size: 18, color: PiPalette.success500),
+                      const SizedBox(width: 12),
+                      Text('chat.menu.close_ticket'.tr(),
+                          style: TextStyle(color: PiPalette.success500)),
+                    ]),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 4),
+            ],
+          ),
         ),
       ),
     );
@@ -1009,7 +1435,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Icon(LucideIcons.user, size: 18, color: PiPalette.ink400),
+            child:
+                const Icon(LucideIcons.user, size: 18, color: PiPalette.ink400),
           ),
           if (avatarUrl != null)
             ClipOval(
@@ -1065,59 +1492,111 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       orElse: () => widget.contact,
     );
 
-    final lastInbound = liveContact.lastInboundChatAt ?? widget.contact.lastInboundChatAt;
+    final lastInbound =
+        liveContact.lastInboundChatAt ?? widget.contact.lastInboundChatAt;
     if (lastInbound == null) return false;
     return DateTime.now().difference(lastInbound).inHours < 24;
   }
 
   /// Banner shown when the 24-hour window has expired
   Widget _build24HourExpiredBanner() {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: PiSpacing.space16,
-        vertical: PiSpacing.space12,
-      ),
-      decoration: BoxDecoration(
-        color: PiPalette.warning500.withOpacity(0.08),
-        border: Border(top: BorderSide(color: PiPalette.warning500.withOpacity(0.3))),
-      ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Icon(LucideIcons.clock, color: PiPalette.warning500, size: 18),
-            const SizedBox(width: PiSpacing.space8),
-            Expanded(
-              child: Text(
-                'chat.banner.24h_expired'.tr(),
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: Sz.sp(context, 13),
-                  color: PiPalette.warning500,
-                ),
+    final colors = PiColors.of(context);
+
+    /*
+     * A floating capsule rather than a full-width bar. The old banner sat
+     * edge-to-edge where the composer belongs and claimed a large block of the
+     * thread; this reads as a temporary state over the conversation, which is
+     * what it is.
+     */
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          PiSpacing.space12,
+          PiSpacing.space8,
+          PiSpacing.space12,
+          PiSpacing.space12,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: BackdropFilter(
+            // Frosted, so the messages behind it stay faintly visible instead
+            // of the banner reading as another opaque panel.
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(
+                PiSpacing.space12,
+                PiSpacing.space8,
+                PiSpacing.space8,
+                PiSpacing.space8,
               ),
-            ),
-            const SizedBox(width: PiSpacing.space8),
-            GestureDetector(
-              onTap: _showTemplatePicker,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: PiSpacing.space12,
-                  vertical: PiSpacing.space8,
-                ),
-                decoration: BoxDecoration(
-                  color: PiPalette.warning500,
-                  borderRadius: PiRadius.brFull,
-                ),
-                child: Text(
-                  'chat.banner.send_template_button'.tr(),
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: Sz.sp(context, 13),
-                    fontWeight: FontWeight.w600,
-                    color: PiPalette.white,
+              decoration: BoxDecoration(
+                color: colors.surfaceRaised.withValues(alpha: 0.82),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: colors.divider.withValues(alpha: 0.6)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.10),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
                   ),
-                ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: PiPalette.warning500.withValues(alpha: 0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      LucideIcons.clock,
+                      color: PiPalette.warning500,
+                      size: 14,
+                    ),
+                  ),
+                  const SizedBox(width: PiSpacing.space8),
+                  Expanded(
+                    child: Text(
+                      'chat.banner.24h_expired'.tr(),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: Sz.sp(context, 12.5),
+                        height: 1.25,
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: PiSpacing.space8),
+                  GestureDetector(
+                    onTap: _showTemplatePicker,
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: PiSpacing.space12,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: PiPalette.primary500,
+                        borderRadius: PiRadius.brFull,
+                      ),
+                      child: Text(
+                        'chat.banner.send_template_button'.tr(),
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: Sz.sp(context, 12.5),
+                          fontWeight: FontWeight.w600,
+                          color: PiPalette.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1186,7 +1665,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     // OGG container. Plain AAC/M4A clips arrive as basic audio files.
     // Falling back to AAC keeps recording working on the (rare) device that
     // can't encode opus directly.
-    final supportsOpus = await _audioRecorder.isEncoderSupported(AudioEncoder.opus);
+    final supportsOpus =
+        await _audioRecorder.isEncoderSupported(AudioEncoder.opus);
     final encoder = supportsOpus ? AudioEncoder.opus : AudioEncoder.aacLc;
     final ext = supportsOpus ? 'ogg' : 'm4a';
     final path =
@@ -1224,7 +1704,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     if (path != null) {
       final f = File(path);
       if (await f.exists()) {
-        try { await f.delete(); } catch (_) {}
+        try {
+          await f.delete();
+        } catch (_) {}
       }
     }
     if (!mounted) return;
@@ -1246,7 +1728,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     }
     // Anything below ~0.7s is almost certainly an accidental tap — drop it.
     if (captured.inMilliseconds < 700) {
-      try { await File(path).delete(); } catch (_) {}
+      try {
+        await File(path).delete();
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _isRecording = false;
@@ -1272,7 +1756,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     if (path != null) {
       final f = File(path);
       if (await f.exists()) {
-        try { await f.delete(); } catch (_) {}
+        try {
+          await f.delete();
+        } catch (_) {}
       }
     }
     if (!mounted) return;
@@ -1410,7 +1896,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         // rather than the primary "send" affordance.
         if (!_hasText) ...[
           _IconTapTarget(
-            onTap: () { _closePanel(); _pickImage(ImageSource.camera); },
+            onTap: () {
+              _closePanel();
+              _pickImage(ImageSource.camera);
+            },
             child: Icon(
               LucideIcons.camera,
               size: 22,
@@ -1433,8 +1922,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
             onTap: _sendMessage,
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 180),
-              transitionBuilder: (c, a) =>
-                  ScaleTransition(scale: a, child: c),
+              transitionBuilder: (c, a) => ScaleTransition(scale: a, child: c),
               child: Container(
                 key: const ValueKey('send'),
                 width: 38,
@@ -1525,8 +2013,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         // LEFT: discard
         _IconTapTarget(
           onTap: _deleteRecording,
-          child:
-              Icon(LucideIcons.trash2, size: 22, color: PiColors.of(context).error),
+          child: Icon(LucideIcons.trash2,
+              size: 22, color: PiColors.of(context).error),
         ),
         // CENTER: play/pause + position text inside the same pill as input
         Expanded(
@@ -1557,7 +2045,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                   ),
                 ),
                 const SizedBox(width: 6),
-                Icon(LucideIcons.mic, size: 14, color: PiColors.of(context).textSecondary),
+                Icon(LucideIcons.mic,
+                    size: 14, color: PiColors.of(context).textSecondary),
                 const SizedBox(width: 4),
                 Expanded(
                   child: StreamBuilder<Duration>(
@@ -1594,8 +2083,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
               color: PiPalette.primary500,
               shape: BoxShape.circle,
             ),
-            child: const Icon(LucideIcons.send,
-                color: PiPalette.white, size: 18),
+            child:
+                const Icon(LucideIcons.send, color: PiPalette.white, size: 18),
           ),
         ),
       ],
@@ -1607,7 +2096,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     // Watch mainDataProvider so this rebuilds when contacts refresh from API
     // (which populates lastInboundChatAt that isn't stored in the local DB).
     ref.watch(mainDataProvider.select(
-      (contacts) => contacts.firstWhere((c) => c.id == widget.contact.id, orElse: () => widget.contact).lastInboundChatAt,
+      (contacts) => contacts
+          .firstWhere((c) => c.id == widget.contact.id,
+              orElse: () => widget.contact)
+          .lastInboundChatAt,
     ));
 
     if (!_isWithin24HourWindow()) {
@@ -1621,7 +2113,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       decoration: BoxDecoration(
         color: PiColors.of(context).surfaceRaised,
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, -1)),
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, -1)),
         ],
       ),
       child: SafeArea(
@@ -1636,7 +2131,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                 left: 8,
                 right: 8,
                 top: 6,
-                bottom: panelOpen ? 6 : 6 + MediaQuery.viewPaddingOf(context).bottom,
+                bottom: panelOpen
+                    ? 6
+                    : 6 + MediaQuery.viewPaddingOf(context).bottom,
               ),
               child: _isRecording
                   ? _buildRecordingRow()
@@ -1664,16 +2161,64 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   Widget _buildAttachmentPanel(Size size) {
     // 4-column grid, 2 rows — each option has a colored circle + label
     final actions = [
-      (LucideIcons.image,    'chat.attachment.gallery'.tr(),  const Color(0xFF1A73E8), () { _closePanel(); _pickImage(ImageSource.gallery); }),
-      (LucideIcons.camera,   'chat.attachment.camera'.tr(),   const Color(0xFF202124), () { _closePanel(); _pickImage(ImageSource.camera); }),
-      (LucideIcons.mapPin,   'Location',                       const Color(0xFF34A853), () { _closePanel(); _shareLocation(); }),
-      (LucideIcons.user,     'Contact',                        const Color(0xFF9AA0A6), () { _closePanel(); _shareContact(); }),
-      (LucideIcons.fileText, 'chat.attachment.document'.tr(), const Color(0xFF1A73E8), () { _closePanel(); _pickDocument(); }),
-      (LucideIcons.zap,      'Quick Reply',                    const Color(0xFFF9AB00), () { _closePanel(); _showQuickReplyPicker(); }),
+      (
+        LucideIcons.image,
+        'chat.attachment.gallery'.tr(),
+        const Color(0xFF1A73E8),
+        () {
+          _closePanel();
+          _pickImage(ImageSource.gallery);
+        }
+      ),
+      (
+        LucideIcons.camera,
+        'chat.attachment.camera'.tr(),
+        const Color(0xFF202124),
+        () {
+          _closePanel();
+          _pickImage(ImageSource.camera);
+        }
+      ),
+      (
+        LucideIcons.mapPin,
+        'Location',
+        const Color(0xFF34A853),
+        () {
+          _closePanel();
+          _shareLocation();
+        }
+      ),
+      (
+        LucideIcons.user,
+        'Contact',
+        const Color(0xFF9AA0A6),
+        () {
+          _closePanel();
+          _shareContact();
+        }
+      ),
+      (
+        LucideIcons.fileText,
+        'chat.attachment.document'.tr(),
+        const Color(0xFF1A73E8),
+        () {
+          _closePanel();
+          _pickDocument();
+        }
+      ),
+      (
+        LucideIcons.zap,
+        'Quick Reply',
+        const Color(0xFFF9AB00),
+        () {
+          _closePanel();
+          _showQuickReplyPicker();
+        }
+      ),
     ];
 
     final circleSize = size.width * 0.155;
-    final iconSize   = size.width * 0.065;
+    final iconSize = size.width * 0.065;
 
     return Container(
       width: double.infinity,
@@ -1704,7 +2249,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                     color: PiColors.of(context).surfaceRaised,
                     shape: BoxShape.circle,
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.08),
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
@@ -1732,21 +2278,145 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   Widget _buildEmojiPanel(Size size) {
     const emojis = [
-      '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩',
-      '😘','😗','😚','😙','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤔','😐','😑','😶',
-      '😏','😒','🙄','😬','😔','😪','😴','😷','🤒','🤕','🤢','🤮','🥵','🥶','😵','🤯',
-      '🥳','😎','🤓','😕','😟','🙁','☹️','😮','😲','😳','🥺','😦','😧','😨','😢','😭',
-      '😱','😖','😣','😞','😩','😫','😤','😡','😠','🤬','😈','👿','💀','💩','🤡','👻',
-      '❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','❣️','💕','💞','💓','💗','💖','💘',
-      '👋','✋','👌','✌️','🤞','👍','👎','✊','👏','🙌','🙏','🤝','💪','🦾','🖐️','☝️',
-      '🎉','🎊','🎈','🎁','🏆','🥇','⭐','🌟','✨','🔥','💥','❄️','🌈','☀️','🌙','⚡',
+      '😀',
+      '😃',
+      '😄',
+      '😁',
+      '😆',
+      '😅',
+      '🤣',
+      '😂',
+      '🙂',
+      '🙃',
+      '😉',
+      '😊',
+      '😇',
+      '🥰',
+      '😍',
+      '🤩',
+      '😘',
+      '😗',
+      '😚',
+      '😙',
+      '😋',
+      '😛',
+      '😜',
+      '🤪',
+      '😝',
+      '🤑',
+      '🤗',
+      '🤭',
+      '🤔',
+      '😐',
+      '😑',
+      '😶',
+      '😏',
+      '😒',
+      '🙄',
+      '😬',
+      '😔',
+      '😪',
+      '😴',
+      '😷',
+      '🤒',
+      '🤕',
+      '🤢',
+      '🤮',
+      '🥵',
+      '🥶',
+      '😵',
+      '🤯',
+      '🥳',
+      '😎',
+      '🤓',
+      '😕',
+      '😟',
+      '🙁',
+      '☹️',
+      '😮',
+      '😲',
+      '😳',
+      '🥺',
+      '😦',
+      '😧',
+      '😨',
+      '😢',
+      '😭',
+      '😱',
+      '😖',
+      '😣',
+      '😞',
+      '😩',
+      '😫',
+      '😤',
+      '😡',
+      '😠',
+      '🤬',
+      '😈',
+      '👿',
+      '💀',
+      '💩',
+      '🤡',
+      '👻',
+      '❤️',
+      '🧡',
+      '💛',
+      '💚',
+      '💙',
+      '💜',
+      '🖤',
+      '🤍',
+      '💔',
+      '❣️',
+      '💕',
+      '💞',
+      '💓',
+      '💗',
+      '💖',
+      '💘',
+      '👋',
+      '✋',
+      '👌',
+      '✌️',
+      '🤞',
+      '👍',
+      '👎',
+      '✊',
+      '👏',
+      '🙌',
+      '🙏',
+      '🤝',
+      '💪',
+      '🦾',
+      '🖐️',
+      '☝️',
+      '🎉',
+      '🎊',
+      '🎈',
+      '🎁',
+      '🏆',
+      '🥇',
+      '⭐',
+      '🌟',
+      '✨',
+      '🔥',
+      '💥',
+      '❄️',
+      '🌈',
+      '☀️',
+      '🌙',
+      '⚡',
     ];
 
     return Container(
       height: size.height * 0.28 + MediaQuery.viewPaddingOf(context).bottom,
       color: PiColors.of(context).surfaceRaised,
       child: GridView.builder(
-        padding: EdgeInsets.fromLTRB(size.width * 0.02, size.width * 0.02, size.width * 0.02, size.width * 0.02 + MediaQuery.viewPaddingOf(context).bottom),
+        padding: EdgeInsets.fromLTRB(
+            size.width * 0.02,
+            size.width * 0.02,
+            size.width * 0.02,
+            size.width * 0.02 + MediaQuery.viewPaddingOf(context).bottom),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 8,
           crossAxisSpacing: size.width * 0.005,
@@ -1762,11 +2432,13 @@ class _ChatThreadState extends ConsumerState<ChatThread>
             final newText = text.replaceRange(start, end, emojis[i]);
             _messageController.value = TextEditingValue(
               text: newText,
-              selection: TextSelection.collapsed(offset: start + emojis[i].length),
+              selection:
+                  TextSelection.collapsed(offset: start + emojis[i].length),
             );
           },
           child: Center(
-            child: Text(emojis[i], style: TextStyle(fontSize: size.width * 0.062)),
+            child:
+                Text(emojis[i], style: TextStyle(fontSize: size.width * 0.062)),
           ),
         ),
       ),
@@ -1798,7 +2470,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('chat.snackbar.error_picking_image'.tr(namedArgs: {'error': e.toString()})), backgroundColor: PiPalette.error500),
+          SnackBar(
+              content: Text('chat.snackbar.error_picking_image'
+                  .tr(namedArgs: {'error': e.toString()})),
+              backgroundColor: PiPalette.error500),
         );
       }
     }
@@ -1826,14 +2501,18 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('chat.snackbar.error_picking_file'.tr(namedArgs: {'error': e.toString()})), backgroundColor: PiPalette.error500),
+          SnackBar(
+              content: Text('chat.snackbar.error_picking_file'
+                  .tr(namedArgs: {'error': e.toString()})),
+              backgroundColor: PiPalette.error500),
         );
       }
     }
   }
 
   /// Send a media file with optional caption — optimistic insert handles UX
-  Future<void> _sendMediaFile(File file, {String? caption, bool isVoice = false}) async {
+  Future<void> _sendMediaFile(File file,
+      {String? caption, bool isVoice = false}) async {
     final chatRepo = ref.read(chatRepositoryProvider);
     final orgId = ref.read(organizationProvider)?.id ?? 0;
 
@@ -1893,9 +2572,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
     final card = <String, dynamic>{
       'name': {
-        'formatted_name': formattedName.isEmpty
-            ? picked.phones.first.phone
-            : formattedName,
+        'formatted_name':
+            formattedName.isEmpty ? picked.phones.first.phone : formattedName,
         if (first.isNotEmpty) 'first_name': first,
         if (last.isNotEmpty) 'last_name': last,
       },
