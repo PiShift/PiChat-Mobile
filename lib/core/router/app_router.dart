@@ -1,4 +1,5 @@
 // lib/core/router/app_router.dart
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pichat/core/router/stream_listenable.dart';
@@ -108,7 +109,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/home/chats/detail',
             builder: (context, state) {
-              final contact = state.extra as Contact;
+              // `extra` is not part of the URL, so it is gone whenever this
+              // route is rebuilt without being navigated to again — a restore,
+              // a deep link, or a frame that failed part-way through. The hard
+              // cast turned that into "Null is not a subtype of Contact" and
+              // took the whole screen down; returning to the list is the
+              // recoverable answer.
+              final contact = state.extra;
+
+              if (contact is! Contact) return const _ChatTargetLost();
+
               return ChatThread(contact: contact);
             },
           ),
@@ -147,3 +157,31 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+
+/// Shown when a conversation route is rebuilt without the contact it needs.
+///
+/// It sends the agent back to the list rather than sitting on an error, since
+/// there is nothing they could do on this screen without knowing who it is for.
+class _ChatTargetLost extends StatefulWidget {
+  const _ChatTargetLost();
+
+  @override
+  State<_ChatTargetLost> createState() => _ChatTargetLostState();
+}
+
+class _ChatTargetLostState extends State<_ChatTargetLost> {
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) GoRouter.of(context).go('/home/chats');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+  }
+}

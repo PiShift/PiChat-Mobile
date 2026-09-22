@@ -34,6 +34,11 @@ class MediaPlaybackState {
   final String? localPath;
   final String? error;
 
+  /// Whether the one automatic fetch has already been tried for this media.
+  /// Without it a sticker that fails to download would ask for itself again
+  /// on every rebuild, which on a scrolling thread is a request loop.
+  final bool autoAttempted;
+
   MediaPlaybackState({
     this.isPlaying = false,
     this.progress = 0,
@@ -41,6 +46,7 @@ class MediaPlaybackState {
     this.isDownloading = false,
     this.localPath,
     this.error,
+    this.autoAttempted = false,
   });
 
   MediaPlaybackState copyWith({
@@ -50,6 +56,10 @@ class MediaPlaybackState {
     bool? isDownloading,
     String? localPath,
     String? error,
+    bool? autoAttempted,
+    // `error: null` cannot clear a field that falls back to the old value, so
+    // a failed download used to keep showing its error through every retry.
+    bool clearError = false,
   }) {
     return MediaPlaybackState(
       isPlaying: isPlaying ?? this.isPlaying,
@@ -57,7 +67,8 @@ class MediaPlaybackState {
       isDownloaded: isDownloaded ?? this.isDownloaded,
       isDownloading: isDownloading ?? this.isDownloading,
       localPath: localPath ?? this.localPath,
-      error: error ?? this.error,
+      error: clearError ? null : (error ?? this.error),
+      autoAttempted: autoAttempted ?? this.autoAttempted,
     );
   }
 }
@@ -68,6 +79,32 @@ class MediaPlaybackNotifier extends StateNotifier<MediaPlaybackState> {
 
   MediaPlaybackNotifier(this._ref, this._mediaId) : super(MediaPlaybackState());
 
+  /// Fetch without the user asking for it.
+  ///
+  /// Used for stickers: WhatsApp shows them inline, they are a few dozen KB,
+  /// and a download button over one is not a real choice. Runs at most once
+  /// per media — if it fails, the bubble falls back to the manual retry
+  /// button rather than hammering Meta.
+  Future<void> autoDownload(
+    String contactId,
+    String mediaType, {
+    String? metaId,
+    String? metaUrl,
+    String? mimeType,
+  }) async {
+    if (state.autoAttempted) return;
+
+    state = state.copyWith(autoAttempted: true);
+
+    await downloadMedia(
+      contactId,
+      mediaType,
+      metaId: metaId,
+      metaUrl: metaUrl,
+      mimeType: mimeType,
+    );
+  }
+
   Future<void> downloadMedia(
     String contactId,
     String mediaType, {
@@ -77,7 +114,7 @@ class MediaPlaybackNotifier extends StateNotifier<MediaPlaybackState> {
   }) async {
     if (state.isDownloading || state.isDownloaded) return;
 
-    state = state.copyWith(isDownloading: true, error: null);
+    state = state.copyWith(isDownloading: true, clearError: true);
 
     try {
       final org = _ref.read(organizationProvider);

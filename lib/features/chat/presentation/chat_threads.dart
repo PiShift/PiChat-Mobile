@@ -14,6 +14,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:pichat/features/chat/application/local_media_manager.dart';
+import 'package:pichat/features/chat/widgets/recording_wave_bar.dart';
+import 'package:pichat/features/chat/widgets/voice_waveform.dart';
+import 'package:pichat/features/chat/application/waveform_provider.dart';
+import 'package:pichat/features/chat/application/voice_chain.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:pichat/core/state/auth_state.dart';
@@ -27,6 +31,7 @@ import 'package:pichat/data/repositories/label_repository.dart';
 import 'package:pichat/features/labels/presentation/assign_labels_sheet.dart';
 import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/features/chat/widgets/conversation_status_bar.dart';
+import 'package:pichat/features/chat/data/pibot_api.dart';
 import 'package:pichat/features/chat/widgets/timeline_event_item.dart';
 import 'package:pichat/data/models/timeline_event_model.dart';
 import 'package:pichat/data/models/contact_model.dart';
@@ -98,6 +103,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   // Cached notifier so dispose() can safely clear without accessing ref.
   late StateController<int?> _activeContactNotifier;
+  late StateController<String?> _activeContactNameNotifier;
 
   // ── Older-message pagination state ───────────────────────────────────
   bool _isLoadingOlder = false;
@@ -118,9 +124,13 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   /// Final length of the recording, captured at stop time.
   Duration _recordedDuration = Duration.zero;
 
-  /// Live elapsed time while [_isRecording] is true.
-  Duration _recordElapsed = Duration.zero;
-  Timer? _recordTicker;
+  /// When the current recording began.
+  ///
+  /// Only a start time is kept here. The ticking clock lives inside
+  /// [RecordingWaveBar]: driving it from this state rebuilt the entire thread
+  /// several times a second, which made every audio bubble's duration label
+  /// flicker for as long as a recording was running.
+  DateTime? _recordStart;
   final AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _previewPlayer = AudioPlayer();
   bool _previewIsPlaying = false;
@@ -134,13 +144,18 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     // Cache the notifier before any async work so dispose() can access it
     // safely even after the widget is deactivated (ref is no longer usable).
     _activeContactNotifier = ref.read(activeContactIdProvider.notifier);
+    _activeContactNameNotifier =
+        ref.read(activeContactNameProvider.notifier);
     _chatRepoForDispose = ref.read(chatRepositoryProvider);
     _listNotifierForDispose = ref.read(mainDataProvider.notifier);
 
     // Tell the rest of the app which contact is currently open so
     // ReverbService can suppress in-app banners for this conversation.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _activeContactNotifier.state = widget.contact.id;
+      if (mounted) {
+        _activeContactNotifier.state = widget.contact.id;
+        _activeContactNameNotifier.state = widget.contact.fullName?.trim();
+      }
       _fetchNewMessages();
     });
 
@@ -181,13 +196,31 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     _markWholeConversationRead();
 
     // Clear the active contact so banners resume for future incoming messages.
-    // Use the cached notifier — ref is unsafe after the widget is deactivated.
-    _activeContactNotifier.state = null;
+    //
+    // Deferred out of dispose(): writing to a provider during a widget
+    // life-cycle is not allowed, and it only looked harmless while nothing
+    // watched this. The voice-note banner watches it to decide whether it is
+    // outside the conversation, so the write started rebuilding the widget
+    // tree mid-teardown — which is where the defunct-element assertions, the
+    // duplicate GlobalKey and the null Contact all came from.
+    //
+    // Guarded by contact id because navigating from one conversation straight
+    // into another opens the new one before this runs; clearing blindly would
+    // wipe the thread the agent had just moved to.
+    final leaving = widget.contact.id;
+    final idNotifier = _activeContactNotifier;
+    final nameNotifier = _activeContactNameNotifier;
+
+    Future(() {
+      if (idNotifier.state != leaving) return;
+
+      idNotifier.state = null;
+      nameNotifier.state = null;
+    });
     WidgetsBinding.instance.removeObserver(this);
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _messageFocusNode.dispose();
-    _recordTicker?.cancel();
     _audioRecorder.dispose();
     _previewStateSub?.cancel();
     _previewPlayer.dispose();
@@ -338,9 +371,15 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     await ref
         .read(appDatabaseProvider)
         .setContactLabels(contactId: widget.contact.id, labels: result);
+
+    // The chat list renders from its own in-memory Contact copies, which no
+    // database stream feeds — without this the row keeps its old labels until
+    // a full refresh.
+    ref.read(mainDataProvider.notifier).applyLabels(widget.contact.id, result);
   }
 
-  /// Show agent picker bottom sheet
+  /// Show the conversation owner picker: the assistant and the agents in one
+  /// list.
   void _showAgentPicker() async {
     // First get current ticket to know current agent
     final teamRepo = ref.read(teamRepositoryProvider);
@@ -349,6 +388,12 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     try {
       currentTicket = await teamRepo.getTicket(widget.contact.uuid);
     } catch (_) {}
+
+    // Already fetched for the status strip, so this is a cached read.
+    final pibot = ref.read(pibotStateProvider(widget.contact.uuid)).maybeWhen(
+          data: (value) => value,
+          orElse: () => null,
+        );
 
     if (!mounted) return;
 
@@ -363,6 +408,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         builder: (_, scrollController) => AgentPickerSheet(
           contactUuid: widget.contact.uuid,
           currentAgent: currentTicket?.assignedTo,
+          pibot: pibot,
+          onAiSelected: _handBackToAi,
           onAgentSelected: (agent) async {
             try {
               await teamRepo.assignToAgent(widget.contact.uuid, agent.id);
@@ -374,6 +421,12 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                     contactId: widget.contact.id,
                     agentId: agent.id,
                     agentName: agent.name,
+                  );
+
+              ref.read(mainDataProvider.notifier).applyAssignment(
+                    widget.contact.id,
+                    agent.id,
+                    agent.name,
                   );
 
               if (mounted) {
@@ -402,6 +455,74 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     );
   }
 
+  /// Hand the conversation back to the AI assistant.
+  ///
+  /// Closing the ticket is what does it: the server nulls `assigned_to` and
+  /// reactivates the bot's session in the same call, and the assistant stays
+  /// silent for as long as a human holds the ticket. Closing therefore also
+  /// takes the conversation out of the Open filter, which is the intended
+  /// meaning of handing it back.
+  Future<void> _handBackToAi() async {
+    final teamRepo = ref.read(teamRepositoryProvider);
+
+    try {
+      await teamRepo.updateTicketStatus(widget.contact.uuid, 'closed');
+      await _applyTicketStatusLocally('closed');
+
+      // The bot's own state is decided server-side, so re-read it rather than
+      // assuming the handback woke it up.
+      ref.invalidate(pibotStateProvider(widget.contact.uuid));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('chat.snackbar.handed_to_ai'.tr()),
+            backgroundColor: PiPalette.success500,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('chat.snackbar.failed_to_hand_to_ai'
+                .tr(namedArgs: {'error': e.toString()})),
+            backgroundColor: PiPalette.error500,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Mirror a ticket status change into the local row and the chat list.
+  ///
+  /// Status changes used to write neither, so `Contact.ticketStatus` went stale
+  /// everywhere — and because the chat list filters on it, a conversation
+  /// closed from here kept showing under Open.
+  ///
+  /// Closing also unassigns: the server nulls `assigned_to` on close (see
+  /// `TicketController::updateStatus`), and the local copies have to follow or
+  /// the header would still name an agent who no longer owns it.
+  Future<void> _applyTicketStatusLocally(String status) async {
+    final db = ref.read(appDatabaseProvider);
+    final list = ref.read(mainDataProvider.notifier);
+
+    await db.setContactTicketStatus(
+      contactId: widget.contact.id,
+      status: status,
+    );
+    list.applyTicketStatus(widget.contact.id, status);
+
+    if (status == 'closed') {
+      await db.setContactAssignment(
+        contactId: widget.contact.id,
+        agentId: null,
+        agentName: null,
+      );
+      list.applyAssignment(widget.contact.id, null, null);
+    }
+  }
+
   /// Show status picker bottom sheet
   void _showStatusPicker() async {
     final teamRepo = ref.read(teamRepositoryProvider);
@@ -421,6 +542,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         onStatusSelected: (status) async {
           try {
             await teamRepo.updateTicketStatus(widget.contact.uuid, status);
+            await _applyTicketStatusLocally(status);
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -452,6 +574,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
     try {
       await teamRepo.updateTicketStatus(widget.contact.uuid, 'closed');
+      await _applyTicketStatusLocally('closed');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -968,6 +1091,13 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         behavior: HitTestBehavior.translucent,
         onTap: () {
           FocusScope.of(context).unfocus();
+
+          // Only rebuild when a panel was actually open. This fired on every
+          // tap anywhere in the thread, rebuilding the whole conversation —
+          // which reset any voice note that was playing and made every
+          // duration flicker.
+          if (!_showAttachmentPanel && !_showEmojiPanel) return;
+
           setState(() {
             _showAttachmentPanel = false;
             _showEmojiPanel = false;
@@ -976,7 +1106,10 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         child: Column(
           children: [
             _buildChatAppBar(context),
-            ConversationStatusBar(contact: widget.contact),
+            ConversationStatusBar(
+              contact: widget.contact,
+              onTap: _showAgentPicker,
+            ),
             Divider(
                 height: 1, thickness: 1, color: PiColors.of(context).divider),
             // Messages list (expanded to fill available space)
@@ -1143,25 +1276,37 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                               final startsDay =
                                   isNewDay(previous, msg.createdAt);
 
+                              // Keyed by message id, not list position.
+                              // Without this, Flutter matches rows by index:
+                              // loading older messages shifts every index, and
+                              // a playing voice note's state would be handed to
+                              // whichever message landed in its slot.
                               if (leading.isEmpty &&
                                   trailing.isEmpty &&
                                   !startsDay) {
-                                return bubble;
+                                return KeyedSubtree(
+                                  key: ValueKey('msg_${msg.id}'),
+                                  child: bubble,
+                                );
                               }
 
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  if (startsDay)
-                                    ChatDateSeparator(
-                                      label: chatDateLabel(msg.createdAt),
-                                    ),
-                                  for (final e in leading)
-                                    TimelineEventItem(event: e),
-                                  bubble,
-                                  for (final e in trailing)
-                                    TimelineEventItem(event: e),
-                                ],
+                              return KeyedSubtree(
+                                key: ValueKey('msg_${msg.id}'),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (startsDay)
+                                      ChatDateSeparator(
+                                        label: chatDateLabel(msg.createdAt),
+                                      ),
+                                    for (final e in leading)
+                                      TimelineEventItem(event: e),
+                                    bubble,
+                                    for (final e in trailing)
+                                      TimelineEventItem(event: e),
+                                  ],
+                                ),
                               );
                             },
                             itemScrollController: _itemScrollController,
@@ -1731,24 +1876,16 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       path: path,
     );
 
-    final start = DateTime.now();
-    _recordTicker?.cancel();
-    _recordTicker = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      if (!mounted) return;
-      setState(() => _recordElapsed = DateTime.now().difference(start));
-    });
-
     if (!mounted) return;
     setState(() {
       _isRecording = true;
+      _recordStart = DateTime.now();
       _recordedAudioPath = null;
       _recordedDuration = Duration.zero;
-      _recordElapsed = Duration.zero;
     });
   }
 
   Future<void> _cancelRecording() async {
-    _recordTicker?.cancel();
     final path = await _audioRecorder.stop();
     if (path != null) {
       final f = File(path);
@@ -1761,15 +1898,16 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     if (!mounted) return;
     setState(() {
       _isRecording = false;
+      _recordStart = null;
       _recordedAudioPath = null;
-      _recordElapsed = Duration.zero;
       _recordedDuration = Duration.zero;
     });
   }
 
   Future<void> _stopRecordingForReview() async {
-    _recordTicker?.cancel();
-    final captured = _recordElapsed;
+    final start = _recordStart;
+    final captured =
+        start == null ? Duration.zero : DateTime.now().difference(start);
     final path = await _audioRecorder.stop();
     if (path == null) {
       if (mounted) setState(() => _isRecording = false);
@@ -1783,8 +1921,8 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       if (!mounted) return;
       setState(() {
         _isRecording = false;
+        _recordStart = null;
         _recordedAudioPath = null;
-        _recordElapsed = Duration.zero;
       });
       return;
     }
@@ -1794,6 +1932,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     if (!mounted) return;
     setState(() {
       _isRecording = false;
+      _recordStart = null;
       _recordedAudioPath = path;
       _recordedDuration = captured;
     });
@@ -2016,20 +2155,14 @@ class _ChatThreadState extends ConsumerState<ChatThread>
               children: [
                 _PulsingRedDot(),
                 const SizedBox(width: 10),
-                Text(
-                  _formatRecDuration(_recordElapsed),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                    color: PiColors.of(context).textPrimary,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  'Recording…',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: PiColors.of(context).textSecondary,
+                // Owns its own clock and level stream, so recording no longer
+                // rebuilds the conversation behind it.
+                Expanded(
+                  child: RecordingWaveBar(
+                    recorder: _audioRecorder,
+                    startedAt: _recordStart ?? DateTime.now(),
+                    barColor: PiColors.of(context).primary500,
+                    textColor: PiColors.of(context).textPrimary,
                   ),
                 ),
               ],
@@ -2094,9 +2227,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                   ),
                 ),
                 const SizedBox(width: 6),
-                Icon(LucideIcons.mic,
-                    size: 14, color: PiColors.of(context).textSecondary),
-                const SizedBox(width: 4),
+                // The recording itself, so what is about to be sent can be
+                // seen and scrubbed before sending — the mic glyph that used
+                // to sit here said nothing about the clip.
                 Expanded(
                   child: StreamBuilder<Duration>(
                     stream: _previewPlayer.positionStream,
@@ -2106,13 +2239,46 @@ class _ChatThreadState extends ConsumerState<ChatThread>
                           ? (_previewPlayer.duration ?? Duration.zero)
                           : _recordedDuration;
                       final shown = _previewIsPlaying ? pos : total;
-                      return Text(
-                        _formatRecDuration(shown),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                          color: PiColors.of(context).textPrimary,
-                        ),
+                      final progress = total.inMilliseconds > 0
+                          ? pos.inMilliseconds / total.inMilliseconds
+                          : 0.0;
+
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: VoiceWaveform(
+                              seed: _recordedAudioPath.hashCode,
+                              amplitudes: ref
+                                  .watch(waveformProvider(
+                                      _recordedAudioPath ?? ''))
+                                  .value,
+                              progress: progress,
+                              playedColor: PiPalette.primary500,
+                              remainingColor: PiColors.of(context)
+                                  .textPrimary
+                                  .withValues(alpha: 0.45),
+                              height: 22,
+                              onSeek: total.inMilliseconds > 0
+                                  ? (fraction) => _previewPlayer.seek(
+                                        Duration(
+                                          milliseconds:
+                                              (total.inMilliseconds * fraction)
+                                                  .round(),
+                                        ),
+                                      )
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _formatRecDuration(shown),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontFeatures: [FontFeature.tabularFigures()],
+                              color: PiColors.of(context).textPrimary,
+                            ),
+                          ),
+                        ],
                       );
                     },
                   ),

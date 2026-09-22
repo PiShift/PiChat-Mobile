@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:pichat/features/chat/widgets/voice_waveform.dart';
 import 'package:pichat/core/theme/app_colors.dart';
@@ -12,6 +11,8 @@ import 'package:pichat/data/models/chat_media_model.dart';
 import 'package:pichat/features/chat/application/local_media_manager.dart';
 import 'package:pichat/features/chat/application/media_providers.dart';
 import 'package:pichat/features/chat/application/waveform_provider.dart';
+import 'package:pichat/features/chat/application/voice_chain.dart';
+import 'package:pichat/features/chat/application/voice_player.dart';
 
 class AudioPreview extends ConsumerStatefulWidget {
   final ChatMedia media;
@@ -38,45 +39,27 @@ class AudioPreview extends ConsumerStatefulWidget {
 }
 
 class _AudioPreviewState extends ConsumerState<AudioPreview> {
-  final AudioPlayer _player = AudioPlayer();
-  String? _loadedPath;
-  String? _loadingPath;
-  Future<void>? _loadingFuture;
-  Duration? _duration;
-  Duration _position = Duration.zero;
-  bool _isPlaying = false;
+  // No player, and no position/duration/playing fields, on purpose. All of it
+  // lives in voicePlayerProvider. Held here it was destroyed whenever the list
+  // rebuilt this bubble — a few pixels of scrolling was enough — so playback
+  // stopped mid-note and every timestamp reset at once.
 
-  /// Agents triage a lot of voice notes, so being able to run one at 1.5x or 2x
-  /// is a real time saver. Cycles on tap.
-  static const _speeds = <double>[1.0, 1.5, 2.0];
-  int _speedIndex = 0;
-
-  double get _speed => _speeds[_speedIndex];
-
-  @override
-  void initState() {
-    super.initState();
-    _player.durationStream.listen((d) {
-      if (mounted && d != null) setState(() => _duration = d);
-    });
-    _player.positionStream.listen((p) {
-      if (mounted) setState(() => _position = p);
-    });
-    _player.playerStateStream.listen((s) {
-      if (!mounted) return;
-      setState(() => _isPlaying = s.playing);
-      if (s.processingState == ProcessingState.completed) {
-        _player.seek(Duration.zero);
-        _player.pause();
-      }
-    });
+  /// Start this note because the previous one just finished.
+  Future<void> _playFromChain(String path) async {
+    await ref.read(voicePlayerProvider.notifier).play(widget.mediaId, path);
   }
 
-  @override
-  void dispose() {
-    _player.dispose();
-    super.dispose();
-  }
+  /// Whether [path] is on disk, remembered for this bubble.
+  ///
+  /// The check used to run on every build. A conversation rebuilds for all
+  /// sorts of reasons, and a synchronous stat per audio bubble per frame both
+  /// cost real time and let the duration label flip to a file size whenever a
+  /// check came back false under load. Paths here only change when a download
+  /// completes, which replaces the key and re-checks anyway.
+  final Map<String, bool> _existsCache = {};
+
+  bool _fileExists(String path) =>
+      _existsCache[path] ??= File(path).existsSync();
 
   /// Resolve a usable local file path from media metadata + Riverpod state.
   /// Stored paths are relative to the app's documents directory, so they are
@@ -84,7 +67,7 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
   String? _resolveLocalPath(MediaPlaybackState playback) {
     // Prefer a freshly-recorded/sent file that still lives on this device.
     final recorded = LocalMediaManager.resolve(widget.localFilePath);
-    if (recorded != null && File(recorded).existsSync()) {
+    if (recorded != null && _fileExists(recorded)) {
       return recorded;
     }
     final downloaded = LocalMediaManager.resolve(playback.localPath);
@@ -97,101 +80,52 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
     return null;
   }
 
-  Future<void> _ensureLoaded(String path, {bool showError = false}) async {
-    if (_loadedPath == path) return;
-    // Dedupe: if a load for this same path is already in flight (e.g. the
-    // post-frame auto-load fired and the user immediately tapped play),
-    // await the existing future instead of issuing another setFilePath()
-    // which just_audio aborts with "Loading interrupted".
-    if (_loadingPath == path && _loadingFuture != null) {
-      try {
-        await _loadingFuture;
-      } catch (_) {
-        // The original caller will surface the error if needed.
-      }
-      return;
-    }
-    _loadingPath = path;
-    final future = _player.setFilePath(path);
-    _loadingFuture = future.then((_) {
-      if (!mounted) return;
-      _loadedPath = path;
-    });
-    try {
-      await _loadingFuture;
-    } catch (e) {
-      if (!mounted) return;
-      if (showError) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load audio: $e')),
-        );
-      }
-    } finally {
-      if (_loadingPath == path) {
-        _loadingPath = null;
-        _loadingFuture = null;
-      }
-    }
-  }
-
   Future<void> _togglePlay(String path) async {
-    await _ensureLoaded(path, showError: true);
-    if (_loadedPath != path) return;
-    if (_isPlaying) {
-      await _player.pause();
-    } else {
-      await _player.play();
-    }
+    await ref.read(voicePlayerProvider.notifier).toggle(widget.mediaId, path);
   }
 
   /// Jump to a fraction of the note, from a tap or drag on the waveform.
   Future<void> _seekToFraction(double fraction, String path) async {
-    final total = _duration;
+    final player = ref.read(voicePlayerProvider.notifier);
 
-    if (total == null || total.inMilliseconds <= 0) return;
+    // Seeking a note that is not the one loaded has to load it first, or the
+    // drag would move the position of whatever else was playing.
+    if (!player.isActive(widget.mediaId)) {
+      await player.play(widget.mediaId, path);
+    }
 
-    await _ensureLoaded(path);
-
-    if (_loadedPath != path) return;
-
-    await _player.seek(
-      Duration(milliseconds: (total.inMilliseconds * fraction).round()),
-    );
+    await player.seekFraction(fraction);
   }
 
   Future<void> _cycleSpeed() async {
-    setState(() => _speedIndex = (_speedIndex + 1) % _speeds.length);
-
-    await _player.setSpeed(_speed);
+    await ref.read(voicePlayerProvider.notifier).cycleSpeed();
   }
 
   Future<void> _download() async {
     final notifier = ref.read(mediaPlaybackProvider(widget.mediaId).notifier);
 
-    // 1) If we have a public http path, just cache it through MediaStorageService.
-    final p = widget.media.path;
-    if (p != null && p.startsWith('http')) {
-      try {
-        final storage = ref.read(mediaStorageServiceProvider);
-        final localPath = await storage.downloadMedia(widget.mediaId, p);
-        notifier.setDownloaded(localPath);
-        return;
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to download: $e')),
-          );
-        }
-        return;
-      }
-    }
+    // A download is the one thing that turns a missing path into a real file,
+    // so drop what we remembered about what is on disk before starting.
+    _existsCache.clear();
 
-    // 2) Otherwise fall back to Meta API (voice notes have no public URL).
+    // Outbound media lives on our own server under a public URL; inbound has
+    // to be fetched from Meta. Both go through the same downloader, which
+    // names the file from its mime type and stores it relative to the
+    // documents directory — the previous shortcut for http URLs wrote a file
+    // with no extension and never checked the status code, so an error page
+    // was saved as if it were audio and nothing would play.
+    //
+    // Passing metaId as well means a URL that has gone missing falls back to
+    // re-fetching from Meta instead of simply failing.
+    final p = widget.media.path;
+    final metaUrl = (p != null && p.startsWith('http')) ? p : widget.media.metaUrl;
+
     await notifier.downloadMedia(
       widget.contactId,
       widget.media.type ?? 'audio/ogg',
       metaId: widget.metaId ?? widget.media.metaId,
-      metaUrl: widget.media.metaUrl,
+      metaUrl: metaUrl,
+      mimeType: widget.media.type,
     );
   }
 
@@ -215,17 +149,51 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
   Widget build(BuildContext context) {
     final playback = ref.watch(mediaPlaybackProvider(widget.mediaId));
     final localPath = _resolveLocalPath(playback);
-    final hasLocalFile = localPath != null && File(localPath).existsSync();
+    final hasLocalFile = localPath != null && _fileExists(localPath);
 
-    // Auto-load the file so duration becomes available without requiring play.
-    if (hasLocalFile && _loadedPath != localPath && _loadingPath != localPath) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _ensureLoaded(localPath);
-      });
+    // The note before this one finished and named this bubble as next. The
+    // request is consumed straight away so that pausing what it starts does
+    // not immediately restart it.
+    ref.listen<VoiceChain>(voiceChainProvider, (_, chain) {
+      if (chain.autoPlay != widget.mediaId) return;
+
+      ref.read(voiceChainProvider.notifier).consume(widget.mediaId);
+
+      if (hasLocalFile) _playFromChain(localPath);
+    });
+
+    // Selected field by field, and position only while this bubble is the one
+    // playing. Watching the whole object rebuilt every audio bubble in the
+    // thread on every position tick, several times a second, for a playhead
+    // that only moves in one of them.
+    final id = widget.mediaId;
+
+    final isActive =
+        ref.watch(voicePlayerProvider.select((v) => v.mediaId == id));
+    final isPlaying = ref
+        .watch(voicePlayerProvider.select((v) => v.mediaId == id && v.playing));
+    final speed = ref.watch(voicePlayerProvider.select((v) => v.speed));
+    final livePosition = ref.watch(voicePlayerProvider
+        .select((v) => v.mediaId == id ? v.position : Duration.zero));
+    final liveDuration = ref.watch(
+        voicePlayerProvider.select((v) => v.mediaId == id ? v.duration : null));
+
+    // Read once per file and cached, so it survives this bubble being rebuilt.
+    // While active, prefer the live figure from the player itself.
+    final cached = hasLocalFile
+        ? ref.watch(voiceDurationProvider(localPath)).value
+        : null;
+    final total = isActive ? (liveDuration ?? cached) : cached;
+    final position = livePosition;
+
+    // Tell the shared player where this note lives, so a run can carry on into
+    // it even after this bubble has scrolled out of the list.
+    if (hasLocalFile) {
+      ref.read(voicePlayerProvider.notifier).register(widget.mediaId, localPath);
     }
 
-    final progress = (_duration != null && _duration!.inMilliseconds > 0)
-        ? (_position.inMilliseconds / _duration!.inMilliseconds).clamp(0.0, 1.0)
+    final progress = (total != null && total.inMilliseconds > 0)
+        ? (position.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
     final sizeLabel = _formatSize(widget.media.size);
@@ -235,10 +203,8 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
     //  - loaded but duration not yet known: --:--
     //  - not yet downloaded: file size (e.g. 24 KB)
     final String label;
-    if (hasLocalFile && _duration != null) {
-      label = _isPlaying
-          ? _formatDuration(_position)
-          : _formatDuration(_duration!);
+    if (hasLocalFile && total != null) {
+      label = isPlaying ? _formatDuration(position) : _formatDuration(total);
     } else if (hasLocalFile) {
       label = '--:--';
     } else if (sizeLabel != null) {
@@ -256,7 +222,8 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildTransportButton(playback, hasLocalFile, localPath, colors),
+          _buildTransportButton(
+              playback, hasLocalFile, localPath, colors, isPlaying),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -276,7 +243,13 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
                         : null,
                     progress: progress,
                     playedColor: colors.primary500,
-                    remainingColor: colors.divider,
+                    // Derived from the bubble's own text colour rather than
+                    // `divider`. In dark mode divider (#2C2A28) sits on a sent
+                    // bubble of #3D2A00 — near enough to the same colour that
+                    // the unplayed half of the waveform disappeared. Text
+                    // colour is guaranteed to contrast with whatever bubble it
+                    // is on, in both themes.
+                    remainingColor: colors.textPrimary.withValues(alpha: 0.45),
                     height: 26,
                     onSeek: hasLocalFile
                         ? (fraction) => _seekToFraction(fraction, localPath)
@@ -318,17 +291,17 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: _speedIndex == 0
+                            color: speed == 1.0
                                 ? colors.divider.withValues(alpha: 0.5)
                                 : colors.primary500.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(9),
                           ),
                           child: Text(
-                            '${_speed % 1 == 0 ? _speed.toInt() : _speed}x',
+                            '${speed % 1 == 0 ? speed.toInt() : speed}x',
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: Sz.sp(context, 10),
                               fontWeight: FontWeight.w600,
-                              color: _speedIndex == 0
+                              color: speed == 1.0
                                   ? colors.textSecondary
                                   : colors.primary500,
                             ),
@@ -377,6 +350,7 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
     bool hasLocalFile,
     String? localPath,
     PiColors colors,
+    bool isPlaying,
   ) {
     if (playback.isDownloading) {
       return SizedBox(
@@ -410,7 +384,7 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
         child: Center(
           child: Icon(
             hasLocalFile
-                ? (_isPlaying ? LucideIcons.pause : LucideIcons.play)
+                ? (isPlaying ? LucideIcons.pause : LucideIcons.play)
                 : LucideIcons.arrowDown,
             size: 17,
             color: PiPalette.white,

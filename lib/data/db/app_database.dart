@@ -33,7 +33,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor) : super();
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -60,6 +60,12 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 5) {
         await m.addColumn(contacts, contacts.labels);
+      }
+      if (from < 6) {
+        // Message logs now record which agent opened a message, not just how
+        // far it got towards the customer.
+        await m.addColumn(chatLogs, chatLogs.userId);
+        await m.addColumn(chatLogs, chatLogs.userName);
       }
     },
   );
@@ -335,7 +341,15 @@ extension MediasUpdate on AppDatabase {
     final id = companion.id.value;
     final existing = await (select(medias)..where((m) => m.id.equals(id))).getSingleOrNull();
 
-    if (existing != null && existing.location == 'local') {
+    // A row only counts as downloaded when its path is one we could have
+    // written. Outbound media used to arrive labelled 'local' with an https
+    // path, and this guard then refused to ever update it — so a row that was
+    // wrong stayed wrong for good.
+    final storedLocally = existing != null &&
+        existing.location == 'local' &&
+        !(existing.path ?? '').startsWith('http');
+
+    if (storedLocally) {
       // Already downloaded — update everything except path and location.
       await (update(medias)..where((m) => m.id.equals(id))).write(
         MediasCompanion(
@@ -379,6 +393,21 @@ extension ChatsUpdate on AppDatabase {
         assignedAgentId: Value(agentId),
         assignedAgentName: Value(agentName),
       ),
+    );
+  }
+
+  /// Records the conversation's ticket status after the agent changes it.
+  ///
+  /// Targeted write so it cannot disturb any other column. Without it the
+  /// status stayed stale everywhere after a change made from the thread, and
+  /// the chat list — which filters on it — kept showing closed conversations
+  /// under Open.
+  Future<int> setContactTicketStatus({
+    required int contactId,
+    required String status,
+  }) {
+    return (update(contacts)..where((t) => t.id.equals(contactId))).write(
+      ContactsCompanion(ticketStatus: Value(status)),
     );
   }
 

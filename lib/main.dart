@@ -130,19 +130,10 @@ class _PiChatAppState extends ConsumerState<PiChatApp>
         // cover it, and a call banner that disappears when you open a
         // conversation is useless precisely when it is needed.
         //
-        // Stacked, not inserted into the layout: the chat thread's scroll
-        // positioning is sensitive, and reflowing it mid-call would move the
-        // reader's place.
-        return Stack(
-          children: [
-            child ?? const SizedBox.shrink(),
-            const Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: CallChrome(),
-            ),
-          ],
+        // Laid out above the app, not stacked over it: an overlay covered the
+        // header of whatever screen was open underneath.
+        return CallChromeScaffold(
+          child: child ?? const SizedBox.shrink(),
         );
       },
     );

@@ -271,6 +271,9 @@ class Contact {
     String? lastCallDirection,
     String? lastCallStatus,
     List<Label>? labels,
+    /// Handing a conversation back to the AI removes the assignee, and the
+    /// `??` fallbacks above cannot express "set this to null".
+    bool clearAssignment = false,
   }) {
     return Contact(
       id: id ?? this.id,
@@ -290,8 +293,10 @@ class Contact {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       lastChat: lastChat ?? this.lastChat,
-      assignedAgentName: assignedAgentName ?? this.assignedAgentName,
-      assignedAgentId: assignedAgentId ?? this.assignedAgentId,
+      assignedAgentName:
+          clearAssignment ? null : (assignedAgentName ?? this.assignedAgentName),
+      assignedAgentId:
+          clearAssignment ? null : (assignedAgentId ?? this.assignedAgentId),
       ticketStatus: ticketStatus ?? this.ticketStatus,
       lastCallAt: lastCallAt ?? this.lastCallAt,
       lastCallDirection: lastCallDirection ?? this.lastCallDirection,
@@ -299,7 +304,7 @@ class Contact {
       labels: labels ?? this.labels,
       // Carried through too: a copy must not look like a payload that never
       // mentioned tickets or calls, or persisting it would blank the columns.
-      hasTicketData: hasTicketData,
+      hasTicketData: hasTicketData || clearAssignment,
       hasCallData: hasCallData,
       hasLabelData: hasLabelData,
     );

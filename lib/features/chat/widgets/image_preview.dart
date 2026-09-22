@@ -21,14 +21,29 @@ class ImagePreview extends ConsumerWidget {
   /// Local file path to use immediately (pending/sent outbound or already downloaded)
   final String? localFilePath;
 
+  /// Stickers come down the same image pipeline but are not photos: they are
+  /// small, usually transparent WebP art. Cropping one to the photo frame
+  /// blew it up and cut its edges off, so sticker mode renders it uncropped
+  /// at a fixed square and skips the full-screen viewer.
+  final bool isSticker;
+
   const ImagePreview({
     required this.media,
     required this.mediaId,
     required this.contactId,
     this.metaId,
     this.localFilePath,
+    this.isSticker = false,
     super.key,
   });
+
+  /// Matches WhatsApp's sticker bubble.
+  static const double stickerSize = 160.0;
+
+  double get _width => isSticker ? stickerSize : double.infinity;
+  double get _height =>
+      isSticker ? stickerSize : ChatMessageItem.mediaMaxHeight;
+  BoxFit get _fit => isSticker ? BoxFit.contain : BoxFit.cover;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -57,45 +72,95 @@ class ImagePreview extends ConsumerWidget {
 
     // When we have a local file, wrap in full-screen tap gesture
     if (resolvedLocal != null) {
+      final image = Image.file(
+        File(resolvedLocal),
+        width: _width,
+        height: _height,
+        fit: _fit,
+        errorBuilder: (_, __, ___) => _buildNetworkOrDownload(context, ref, playbackState),
+      );
+
+      if (isSticker) return image;
+
       return GestureDetector(
         onTap: () => _showFullScreenImage(context, resolvedLocal),
-        child: Image.file(
-          File(resolvedLocal),
-          width: double.infinity,
-          height: ChatMessageItem.mediaMaxHeight,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _buildNetworkOrDownload(context, ref, playbackState),
-        ),
+        child: image,
       );
+    }
+
+    // Nothing on disk. A sticker fetches itself rather than making the user
+    // tap a button for a few dozen KB. Provider state cannot be written during
+    // build, so the request goes out after this frame; `autoDownload` is
+    // single-shot, which makes the repeated post-frame calls from rebuilds and
+    // scrolling harmless.
+    if (isSticker && !_hasRemotePath) {
+      // The notifier is resolved here, during build, rather than inside the
+      // callback: `ref` belongs to this widget and throws once it is disposed,
+      // which is what a sticker scrolled off-screen before the frame ends
+      // would do. The notifier outlives the bubble, so it is safe to call late.
+      final notifier = ref.read(mediaPlaybackProvider(mediaId).notifier);
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        notifier.autoDownload(
+          contactId,
+          media.type ?? 'image/webp',
+          metaUrl: media.metaUrl,
+          metaId: metaId,
+        );
+      });
     }
 
     // No local file — show network image or download prompt (no full-screen wrapper that would eat taps)
     return _buildNetworkOrDownload(context, ref, playbackState);
   }
 
+  /// True when the media row already carries a URL we can render directly,
+  /// so nothing needs downloading from Meta.
+  bool get _hasRemotePath =>
+      media.path != null &&
+      media.path!.isNotEmpty &&
+      media.path!.startsWith('http');
+
   Widget _buildNetworkOrDownload(BuildContext context, WidgetRef ref, MediaPlaybackState playbackState) {
     // Has a server/storage URL — just display it. No download button needed; image is already accessible.
-    if (media.path != null && media.path!.isNotEmpty && media.path!.startsWith('http')) {
+    if (_hasRemotePath) {
+      final image = Image.network(
+        media.path!,
+        width: _width,
+        height: _height,
+        fit: _fit,
+        loadingBuilder: (ctx, child, progress) =>
+            progress == null ? child : _buildPlaceholder(ctx, isLoading: true),
+        errorBuilder: (ctx, __, ___) => _buildPlaceholder(ctx, isLoading: false),
+      );
+
+      if (isSticker) return image;
+
       return GestureDetector(
         onTap: () => _showFullScreenImage(context, null),
-        child: Image.network(
-          media.path!,
-          width: double.infinity,
-          height: ChatMessageItem.mediaMaxHeight,
-          fit: BoxFit.cover,
-          loadingBuilder: (ctx, child, progress) =>
-              progress == null ? child : _buildPlaceholder(ctx, isLoading: true),
-          errorBuilder: (ctx, __, ___) => _buildPlaceholder(ctx, isLoading: false),
-        ),
+        child: image,
       );
     }
 
     // No server path yet — show placeholder with a download button
+    final failed = playbackState.error != null;
+
+    // A photo waits for the user to ask. A sticker is already fetching itself,
+    // so its button means "that failed, try again" and only earns its place
+    // once something has actually gone wrong.
+    final showButton = isSticker
+        ? failed
+        : !playbackState.isDownloading && !playbackState.isDownloaded;
+    final showSpinner = playbackState.isDownloading ||
+        (isSticker && !failed && !playbackState.isDownloaded);
+
     return Stack(
       alignment: Alignment.center,
       children: [
         _buildPlaceholder(context, isLoading: false),
-        if (playbackState.error != null)
+        // The raw exception text is too long for a 160px sticker box; there the
+        // retry button carries the message on its own.
+        if (failed && !isSticker)
           Positioned(
             bottom: 4,
             child: Text(
@@ -107,18 +172,22 @@ class ImagePreview extends ConsumerWidget {
               textAlign: TextAlign.center,
             ),
           ),
-        if (playbackState.isDownloading)
+        if (showSpinner)
           _downloadOverlay(isLoading: true, progress: playbackState.progress),
-        if (!playbackState.isDownloading && !playbackState.isDownloaded)
+        if (showButton)
           GestureDetector(
             onTap: () => _downloadFromMeta(ref),
-            child: _downloadOverlay(isLoading: false),
+            child: _downloadOverlay(isLoading: false, isRetry: isSticker),
           ),
       ],
     );
   }
 
-  Widget _downloadOverlay({required bool isLoading, double? progress}) {
+  Widget _downloadOverlay({
+    required bool isLoading,
+    double? progress,
+    bool isRetry = false,
+  }) {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: const BoxDecoration(
@@ -140,7 +209,11 @@ class ImagePreview extends ConsumerWidget {
                     : null,
               ),
             )
-          : const Icon(LucideIcons.download, color: Colors.white, size: 24),
+          : Icon(
+              isRetry ? LucideIcons.refreshCw : LucideIcons.download,
+              color: Colors.white,
+              size: 24,
+            ),
     );
   }
 
@@ -148,8 +221,8 @@ class ImagePreview extends ConsumerWidget {
     final colors = PiColors.of(context);
 
     return SizedBox(
-      width: double.infinity,
-      height: ChatMessageItem.mediaMaxHeight,
+      width: _width,
+      height: _height,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -166,7 +239,7 @@ class ImagePreview extends ConsumerWidget {
           ),
           Center(
             child: Icon(
-              LucideIcons.image,
+              isSticker ? LucideIcons.smile : LucideIcons.image,
               size: 40,
               color: colors.ink400.withValues(alpha: 0.45),
             ),
@@ -218,7 +291,12 @@ class ImagePreview extends ConsumerWidget {
   Future<void> _downloadFromMeta(WidgetRef ref) async {
     await ref
         .read(mediaPlaybackProvider(mediaId).notifier)
-        .downloadMedia(contactId, media.type ?? 'image/jpeg', metaUrl: media.metaUrl, metaId: metaId);
+        .downloadMedia(
+          contactId,
+          media.type ?? (isSticker ? 'image/webp' : 'image/jpeg'),
+          metaUrl: media.metaUrl,
+          metaId: metaId,
+        );
   }
 
   void _showFullScreenImage(BuildContext context, String? resolvedLocal) {

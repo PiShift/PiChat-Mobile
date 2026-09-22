@@ -36,11 +36,35 @@ class ChatMedia {
     name: json['name'],
     path: json['path'],
     metaUrl: json['meta_url'],
-    location: json['location'],
+    location: _deviceLocation(json['location'], json['path']),
     type: json['type'],
     size: json['size'],
     createdAt: DateTime.parse(json['created_at']),
   );
+
+  /// Translate the server's `location` into what this app means by it.
+  ///
+  /// The word means two different things on the two sides. On the server it
+  /// records where *it* put the file — 'local' for its own disk, 'amazon' for
+  /// S3 — and every outbound upload is stamped 'local'. In this app it means
+  /// the file is on *this phone*, which is what tells a bubble to play instead
+  /// of offering a download.
+  ///
+  /// Taken literally, every message we sent arrived claiming to be already on
+  /// the device, with an https URL as its "path". Bubbles then tried to open
+  /// that URL as a file, found nothing, and offered a download that could not
+  /// repair the row — so after a reinstall no outbound media would play. A
+  /// path we could not have written ourselves is remote, whatever it is
+  /// labelled.
+  static String? _deviceLocation(dynamic location, dynamic path) {
+    final url = path is String ? path : '';
+
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return 'remote';
+    }
+
+    return location as String?;
+  }
 
   // ✅ To API JSON
   Map<String, dynamic> toJson() => {

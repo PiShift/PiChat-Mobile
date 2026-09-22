@@ -65,8 +65,34 @@ class Chat {
     createdAt: DateTime.parse(json['created_at']),
     updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
     deletedAt: json['deleted_at'] != null ? DateTime.parse(json['deleted_at']) : null,
-    deletedBy: json['deleted_by']
+    deletedBy: json['deleted_by'],
+    // Both server relations land in one list, told apart by ChatLog.isAgentRead:
+    // `logs` are WhatsApp delivery receipts, `readers` are agents on this
+    // organization who opened the message. This was never parsed before, which
+    // is why the ChatLogs table and its insert path sat unused.
+    logs: [
+      ..._parseLogs(json['logs']),
+      ..._parseLogs(json['readers']),
+    ],
   );
+
+  /// Tolerates a missing or malformed relation — a bad log should cost the
+  /// message info sheet, not the message.
+  static List<ChatLog> _parseLogs(dynamic raw) {
+    if (raw is! List) return const [];
+
+    return raw
+        .whereType<Map>()
+        .map((e) {
+          try {
+            return ChatLog.fromJson(Map<String, dynamic>.from(e));
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<ChatLog>()
+        .toList();
+  }
 
   // ✅ From simplified preview (used in contact list last_message)
   factory Chat.fromPreview(Map<String, dynamic> json, int contactId) {

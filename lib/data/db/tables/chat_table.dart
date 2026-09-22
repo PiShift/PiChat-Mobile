@@ -42,11 +42,21 @@ class Medias extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// Per-message events: Meta delivery receipts, and agents opening the message.
+///
+/// Mirrors `chat_status_logs` on the server, including its actor convention —
+/// [userId] null means a delivery receipt, set means one of our agents opened
+/// the message.
 @DataClassName('ChatLogsData')
 class ChatLogs extends Table {
   IntColumn get id => integer().unique()();
   IntColumn get chatId => integer()();
   TextColumn get metadata => text().nullable()();
+  /// The agent who opened the message; null on delivery receipts.
+  IntColumn get userId => integer().nullable()();
+  /// Denormalised so the info sheet can name the reader offline, without a
+  /// users table to join against.
+  TextColumn get userName => text().nullable()();
   DateTimeColumn get createdAt => dateTime().nullable()();
 
   @override

@@ -3226,6 +3226,17 @@ class $ChatLogsTable extends ChatLogs
   late final GeneratedColumn<String> metadata = GeneratedColumn<String>(
       'metadata', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<int> userId = GeneratedColumn<int>(
+      'user_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _userNameMeta =
+      const VerificationMeta('userName');
+  @override
+  late final GeneratedColumn<String> userName = GeneratedColumn<String>(
+      'user_name', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -3233,7 +3244,8 @@ class $ChatLogsTable extends ChatLogs
       'created_at', aliasedName, true,
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
-  List<GeneratedColumn> get $columns => [id, chatId, metadata, createdAt];
+  List<GeneratedColumn> get $columns =>
+      [id, chatId, metadata, userId, userName, createdAt];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3257,6 +3269,14 @@ class $ChatLogsTable extends ChatLogs
       context.handle(_metadataMeta,
           metadata.isAcceptableOrUnknown(data['metadata']!, _metadataMeta));
     }
+    if (data.containsKey('user_id')) {
+      context.handle(_userIdMeta,
+          userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta));
+    }
+    if (data.containsKey('user_name')) {
+      context.handle(_userNameMeta,
+          userName.isAcceptableOrUnknown(data['user_name']!, _userNameMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -3276,6 +3296,10 @@ class $ChatLogsTable extends ChatLogs
           .read(DriftSqlType.int, data['${effectivePrefix}chat_id'])!,
       metadata: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}metadata']),
+      userId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}user_id']),
+      userName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}user_name']),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at']),
     );
@@ -3291,9 +3315,21 @@ class ChatLogsData extends DataClass implements Insertable<ChatLogsData> {
   final int id;
   final int chatId;
   final String? metadata;
+
+  /// The agent who opened the message; null on delivery receipts.
+  final int? userId;
+
+  /// Denormalised so the info sheet can name the reader offline, without a
+  /// users table to join against.
+  final String? userName;
   final DateTime? createdAt;
   const ChatLogsData(
-      {required this.id, required this.chatId, this.metadata, this.createdAt});
+      {required this.id,
+      required this.chatId,
+      this.metadata,
+      this.userId,
+      this.userName,
+      this.createdAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -3301,6 +3337,12 @@ class ChatLogsData extends DataClass implements Insertable<ChatLogsData> {
     map['chat_id'] = Variable<int>(chatId);
     if (!nullToAbsent || metadata != null) {
       map['metadata'] = Variable<String>(metadata);
+    }
+    if (!nullToAbsent || userId != null) {
+      map['user_id'] = Variable<int>(userId);
+    }
+    if (!nullToAbsent || userName != null) {
+      map['user_name'] = Variable<String>(userName);
     }
     if (!nullToAbsent || createdAt != null) {
       map['created_at'] = Variable<DateTime>(createdAt);
@@ -3315,6 +3357,11 @@ class ChatLogsData extends DataClass implements Insertable<ChatLogsData> {
       metadata: metadata == null && nullToAbsent
           ? const Value.absent()
           : Value(metadata),
+      userId:
+          userId == null && nullToAbsent ? const Value.absent() : Value(userId),
+      userName: userName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(userName),
       createdAt: createdAt == null && nullToAbsent
           ? const Value.absent()
           : Value(createdAt),
@@ -3328,6 +3375,8 @@ class ChatLogsData extends DataClass implements Insertable<ChatLogsData> {
       id: serializer.fromJson<int>(json['id']),
       chatId: serializer.fromJson<int>(json['chatId']),
       metadata: serializer.fromJson<String?>(json['metadata']),
+      userId: serializer.fromJson<int?>(json['userId']),
+      userName: serializer.fromJson<String?>(json['userName']),
       createdAt: serializer.fromJson<DateTime?>(json['createdAt']),
     );
   }
@@ -3338,6 +3387,8 @@ class ChatLogsData extends DataClass implements Insertable<ChatLogsData> {
       'id': serializer.toJson<int>(id),
       'chatId': serializer.toJson<int>(chatId),
       'metadata': serializer.toJson<String?>(metadata),
+      'userId': serializer.toJson<int?>(userId),
+      'userName': serializer.toJson<String?>(userName),
       'createdAt': serializer.toJson<DateTime?>(createdAt),
     };
   }
@@ -3346,11 +3397,15 @@ class ChatLogsData extends DataClass implements Insertable<ChatLogsData> {
           {int? id,
           int? chatId,
           Value<String?> metadata = const Value.absent(),
+          Value<int?> userId = const Value.absent(),
+          Value<String?> userName = const Value.absent(),
           Value<DateTime?> createdAt = const Value.absent()}) =>
       ChatLogsData(
         id: id ?? this.id,
         chatId: chatId ?? this.chatId,
         metadata: metadata.present ? metadata.value : this.metadata,
+        userId: userId.present ? userId.value : this.userId,
+        userName: userName.present ? userName.value : this.userName,
         createdAt: createdAt.present ? createdAt.value : this.createdAt,
       );
   ChatLogsData copyWithCompanion(ChatLogsCompanion data) {
@@ -3358,6 +3413,8 @@ class ChatLogsData extends DataClass implements Insertable<ChatLogsData> {
       id: data.id.present ? data.id.value : this.id,
       chatId: data.chatId.present ? data.chatId.value : this.chatId,
       metadata: data.metadata.present ? data.metadata.value : this.metadata,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      userName: data.userName.present ? data.userName.value : this.userName,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -3368,13 +3425,16 @@ class ChatLogsData extends DataClass implements Insertable<ChatLogsData> {
           ..write('id: $id, ')
           ..write('chatId: $chatId, ')
           ..write('metadata: $metadata, ')
+          ..write('userId: $userId, ')
+          ..write('userName: $userName, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, chatId, metadata, createdAt);
+  int get hashCode =>
+      Object.hash(id, chatId, metadata, userId, userName, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3382,6 +3442,8 @@ class ChatLogsData extends DataClass implements Insertable<ChatLogsData> {
           other.id == this.id &&
           other.chatId == this.chatId &&
           other.metadata == this.metadata &&
+          other.userId == this.userId &&
+          other.userName == this.userName &&
           other.createdAt == this.createdAt);
 }
 
@@ -3389,29 +3451,39 @@ class ChatLogsCompanion extends UpdateCompanion<ChatLogsData> {
   final Value<int> id;
   final Value<int> chatId;
   final Value<String?> metadata;
+  final Value<int?> userId;
+  final Value<String?> userName;
   final Value<DateTime?> createdAt;
   const ChatLogsCompanion({
     this.id = const Value.absent(),
     this.chatId = const Value.absent(),
     this.metadata = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.userName = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   ChatLogsCompanion.insert({
     this.id = const Value.absent(),
     required int chatId,
     this.metadata = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.userName = const Value.absent(),
     this.createdAt = const Value.absent(),
   }) : chatId = Value(chatId);
   static Insertable<ChatLogsData> custom({
     Expression<int>? id,
     Expression<int>? chatId,
     Expression<String>? metadata,
+    Expression<int>? userId,
+    Expression<String>? userName,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (chatId != null) 'chat_id': chatId,
       if (metadata != null) 'metadata': metadata,
+      if (userId != null) 'user_id': userId,
+      if (userName != null) 'user_name': userName,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -3420,11 +3492,15 @@ class ChatLogsCompanion extends UpdateCompanion<ChatLogsData> {
       {Value<int>? id,
       Value<int>? chatId,
       Value<String?>? metadata,
+      Value<int?>? userId,
+      Value<String?>? userName,
       Value<DateTime?>? createdAt}) {
     return ChatLogsCompanion(
       id: id ?? this.id,
       chatId: chatId ?? this.chatId,
       metadata: metadata ?? this.metadata,
+      userId: userId ?? this.userId,
+      userName: userName ?? this.userName,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -3441,6 +3517,12 @@ class ChatLogsCompanion extends UpdateCompanion<ChatLogsData> {
     if (metadata.present) {
       map['metadata'] = Variable<String>(metadata.value);
     }
+    if (userId.present) {
+      map['user_id'] = Variable<int>(userId.value);
+    }
+    if (userName.present) {
+      map['user_name'] = Variable<String>(userName.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -3453,6 +3535,8 @@ class ChatLogsCompanion extends UpdateCompanion<ChatLogsData> {
           ..write('id: $id, ')
           ..write('chatId: $chatId, ')
           ..write('metadata: $metadata, ')
+          ..write('userId: $userId, ')
+          ..write('userName: $userName, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -5294,12 +5378,16 @@ typedef $$ChatLogsTableCreateCompanionBuilder = ChatLogsCompanion Function({
   Value<int> id,
   required int chatId,
   Value<String?> metadata,
+  Value<int?> userId,
+  Value<String?> userName,
   Value<DateTime?> createdAt,
 });
 typedef $$ChatLogsTableUpdateCompanionBuilder = ChatLogsCompanion Function({
   Value<int> id,
   Value<int> chatId,
   Value<String?> metadata,
+  Value<int?> userId,
+  Value<String?> userName,
   Value<DateTime?> createdAt,
 });
 
@@ -5320,6 +5408,12 @@ class $$ChatLogsTableFilterComposer
 
   ColumnFilters<String> get metadata => $composableBuilder(
       column: $table.metadata, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get userName => $composableBuilder(
+      column: $table.userName, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -5343,6 +5437,12 @@ class $$ChatLogsTableOrderingComposer
   ColumnOrderings<String> get metadata => $composableBuilder(
       column: $table.metadata, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get userName => $composableBuilder(
+      column: $table.userName, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 }
@@ -5364,6 +5464,12 @@ class $$ChatLogsTableAnnotationComposer
 
   GeneratedColumn<String> get metadata =>
       $composableBuilder(column: $table.metadata, builder: (column) => column);
+
+  GeneratedColumn<int> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get userName =>
+      $composableBuilder(column: $table.userName, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -5395,24 +5501,32 @@ class $$ChatLogsTableTableManager extends RootTableManager<
             Value<int> id = const Value.absent(),
             Value<int> chatId = const Value.absent(),
             Value<String?> metadata = const Value.absent(),
+            Value<int?> userId = const Value.absent(),
+            Value<String?> userName = const Value.absent(),
             Value<DateTime?> createdAt = const Value.absent(),
           }) =>
               ChatLogsCompanion(
             id: id,
             chatId: chatId,
             metadata: metadata,
+            userId: userId,
+            userName: userName,
             createdAt: createdAt,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
             required int chatId,
             Value<String?> metadata = const Value.absent(),
+            Value<int?> userId = const Value.absent(),
+            Value<String?> userName = const Value.absent(),
             Value<DateTime?> createdAt = const Value.absent(),
           }) =>
               ChatLogsCompanion.insert(
             id: id,
             chatId: chatId,
             metadata: metadata,
+            userId: userId,
+            userName: userName,
             createdAt: createdAt,
           ),
           withReferenceMapper: (p0) => p0

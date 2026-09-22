@@ -204,6 +204,39 @@ class MainDataController extends StateNotifier<List<Contact>> {
     state = updated;
   }
 
+  /// Apply an assignment change to the in-memory row.
+  ///
+  /// Same reason as [applyLabels]: assigning from inside a thread wrote only
+  /// the database, so the agent chip on the chat list row stayed stale until
+  /// the next fetch. Pass nulls to show the conversation as unassigned.
+  void applyAssignment(int contactId, int? agentId, String? agentName) {
+    final updated = List<Contact>.from(state);
+    final index = updated.indexWhere((c) => c.id == contactId);
+
+    if (index == -1) return;
+
+    updated[index] = updated[index].copyWith(
+      assignedAgentId: agentId,
+      assignedAgentName: agentName,
+      clearAssignment: agentId == null && agentName == null,
+    );
+    state = updated;
+  }
+
+  /// Apply a ticket status change to the in-memory row.
+  ///
+  /// The list filters on this value, so without it a conversation closed from
+  /// the thread kept showing under Open.
+  void applyTicketStatus(int contactId, String status) {
+    final updated = List<Contact>.from(state);
+    final index = updated.indexWhere((c) => c.id == contactId);
+
+    if (index == -1) return;
+
+    updated[index] = updated[index].copyWith(ticketStatus: status);
+    state = updated;
+  }
+
   /// Reflect a call on the conversation, without waiting for a refresh.
   ///
   /// Call events arrive over Reverb while the list is on screen, so the row

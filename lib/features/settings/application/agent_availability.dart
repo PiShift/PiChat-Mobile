@@ -38,8 +38,14 @@ class AgentAvailability extends AsyncNotifier<bool> {
       // Going off duty deliberately keeps the push tokens: the agent is
       // pausing, not signing out, and clearing them would force a full
       // re-registration on their next shift.
+      //
+      // `away`, not `offline`. The server writes `offline` itself when a new
+      // device signs in and the old one is stood down, so the two states have
+      // to be told apart — sharing the value meant every fresh install looked
+      // like an agent who had gone off duty, and silently got no message
+      // notifications.
       await NotificationService().registerCallingDevice(
-        status: available ? 'available' : 'offline',
+        status: available ? 'available' : 'away',
       );
     } catch (e) {
       state = AsyncData(!available);

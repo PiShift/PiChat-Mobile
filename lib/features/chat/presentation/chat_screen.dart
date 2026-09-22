@@ -16,6 +16,7 @@ import 'package:pichat/core/theme/app_spacing.dart';
 import 'package:pichat/data/models/contact_model.dart';
 import 'package:pichat/core/services/notification_service.dart';
 import 'package:pichat/features/chat/application/main_controller.dart';
+import 'package:pichat/features/home/application/nav_retap.dart';
 import 'package:pichat/features/chat/widgets/contactItem.dart';
 import 'package:pichat/shared/widgets/pi_badge.dart';
 import 'package:pichat/shared/widgets/pi_input.dart';
@@ -116,6 +117,17 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     }
   }
 
+  /// Bring the agent back to the newest conversations.
+  void _scrollToTop() {
+    if (!_listScrollController.hasClients) return;
+
+    _listScrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -155,6 +167,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Tapping the chats icon while already on the chats tab scrolls back to
+    // the top, the way the home button does elsewhere.
+    ref.listen<NavRetap>(navRetapProvider, (_, retap) {
+      if (retap.tab == 0) _scrollToTop();
+    });
+
     final contacts = ref.watch(filteredContactsProvider);
     final allContacts = ref.watch(mainDataProvider);
     final activeFilter = ref.watch(activeFilterProvider);

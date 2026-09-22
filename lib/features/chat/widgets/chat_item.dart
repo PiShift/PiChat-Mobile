@@ -17,6 +17,7 @@ import 'package:pichat/data/repositories/chat_repository.dart';
 import 'package:pichat/data/repositories/contact_repository.dart';
 import 'package:pichat/features/chat/application/main_controller.dart';
 import 'package:pichat/features/chat/widgets/image_preview.dart';
+import 'package:pichat/features/chat/widgets/message_info_sheet.dart';
 
 import 'audio_preview.dart';
 import 'document_preview.dart';
@@ -84,6 +85,31 @@ class ChatMessageItem extends ConsumerWidget {
           );
         }
         return const SizedBox.shrink();
+
+      case 'sticker':
+        // Meta sends stickers as WebP with no filename, so the backend stores
+        // the name as "N/A". Without a branch here they fell through to the
+        // generic document row and rendered as a file card titled "N/A" with
+        // nothing to show. A sticker is an image - send it down the image
+        // pipeline, uncropped and sticker-sized.
+        if (message.media == null && localPath == null) {
+          return const SizedBox.shrink();
+        }
+
+        return ImagePreview(
+          media: message.media ??
+              ChatMedia(
+                id: -message.id,
+                path: localPath,
+                location: 'local',
+                type: 'image/webp',
+              ),
+          mediaId: message.media?.id.toString() ?? 'local-${message.id}',
+          contactId: message.contactId.toString(),
+          metaId: message.media?.metaId,
+          localFilePath: localPath,
+          isSticker: true,
+        );
 
       case 'audio':
         // While the voice note is still uploading the server media row
@@ -700,6 +726,11 @@ class ChatMessageItem extends ConsumerWidget {
     // information row, and a floating pill just landed on top of it.
     const floatingTypes = {'image', 'video', 'sticker'};
 
+    // A sticker is transparent art rather than a photo, so WhatsApp shows it
+    // on the page itself. Keeping the bubble filled every cut-out area with
+    // the bubble colour and boxed the artwork in with a border.
+    final isStickerBubble = type == 'sticker' && hasMedia;
+
     final isBareMedia = type != 'unsupported' &&
         (floatingTypes.contains(type) || isLocation) &&
         (hasMedia || isLocation) &&
@@ -733,7 +764,13 @@ class ChatMessageItem extends ConsumerWidget {
           Stack(
             clipBehavior: Clip.none,
             children: [
-              GestureDetector(
+              _SwipeForInfo(
+                // An optimistic bubble has no server row yet, so there is
+                // nothing to show a log for.
+                onTriggered: message.id > 0
+                    ? () => MessageInfoSheet.show(context, message)
+                    : null,
+                child: GestureDetector(
                 // Long-press any sent or delivered message that has a wamId
                 // to react to it. Pending/failed outbound bubbles have no
                 // wamId yet so they're naturally excluded.
@@ -746,15 +783,19 @@ class ChatMessageItem extends ConsumerWidget {
                 child: Container(
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
-                    color: isInbound
-                        ? PiColors.of(context).bubbleReceived
-                        : PiColors.of(context).bubbleSent,
-                    border: Border.all(
-                      color: isInbound
-                          ? PiColors.of(context).bubbleReceivedBorder
-                          : PiColors.of(context).bubbleSentBorder,
-                      width: 1,
-                    ),
+                    color: isStickerBubble
+                        ? Colors.transparent
+                        : isInbound
+                            ? PiColors.of(context).bubbleReceived
+                            : PiColors.of(context).bubbleSent,
+                    border: isStickerBubble
+                        ? null
+                        : Border.all(
+                            color: isInbound
+                                ? PiColors.of(context).bubbleReceivedBorder
+                                : PiColors.of(context).bubbleSentBorder,
+                            width: 1,
+                          ),
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(PiRadius.xl),
                       topRight: const Radius.circular(PiRadius.xl),
@@ -763,13 +804,15 @@ class ChatMessageItem extends ConsumerWidget {
                       bottomRight: Radius.circular(
                           isInbound ? PiRadius.xl : PiRadius.xs),
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: PiPalette.ink900.withOpacity(0.06),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
+                    boxShadow: isStickerBubble
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: PiPalette.ink900.withOpacity(0.06),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
                   ),
                   child: Column(
                     // Text content always reads from start (left in LTR, right
@@ -929,6 +972,7 @@ class ChatMessageItem extends ConsumerWidget {
                     ],
                   ),
                 ),
+              ),
               ),
               ),
               // Timestamp floated over the media, on a scrim so it stays
@@ -1308,6 +1352,65 @@ class _ReactionPill extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Drag a bubble sideways to open its message info.
+///
+/// Matches how WhatsApp surfaces the same thing, and keeps the bubble's
+/// long-press free for reactions. The drag is deliberately handled here rather
+/// than on the message row so the vertical list keeps ownership of vertical
+/// gestures; horizontal drags inside a bubble (the audio scrubber) belong to
+/// their own inner detector, which wins the arena as the deeper competitor.
+class _SwipeForInfo extends StatefulWidget {
+  const _SwipeForInfo({required this.child, this.onTriggered});
+
+  final Widget child;
+
+  /// Null disables the gesture entirely — nothing to show info for.
+  final VoidCallback? onTriggered;
+
+  @override
+  State<_SwipeForInfo> createState() => _SwipeForInfoState();
+}
+
+class _SwipeForInfoState extends State<_SwipeForInfo> {
+  static const _triggerAt = 40.0;
+  static const _maxPull = 64.0;
+
+  double _offset = 0;
+
+  void _update(DragUpdateDetails details) {
+    setState(() {
+      _offset = (_offset + details.delta.dx).clamp(-_maxPull, _maxPull);
+    });
+  }
+
+  void _end(DragEndDetails _) {
+    final triggered = _offset.abs() >= _triggerAt;
+
+    setState(() => _offset = 0);
+
+    if (triggered) widget.onTriggered?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.onTriggered == null) return widget.child;
+
+    return GestureDetector(
+      onHorizontalDragUpdate: _update,
+      onHorizontalDragEnd: _end,
+      onHorizontalDragCancel: () => setState(() => _offset = 0),
+      child: AnimatedContainer(
+        duration: _offset == 0
+            ? const Duration(milliseconds: 180)
+            : Duration.zero,
+        curve: Curves.easeOut,
+        transform: Matrix4.translationValues(_offset, 0, 0),
+        child: widget.child,
       ),
     );
   }

@@ -12,6 +12,7 @@ import '../../../data/db/database_provider.dart';
 import '../../../data/models/contact_model.dart';
 import '../../chat/application/main_controller.dart';
 import '../../chat/widgets/in_app_notification_banner.dart';
+import '../application/nav_retap.dart';
 import '../../../shared/widgets/pi_bottom_nav.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -23,7 +24,14 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  int _currentIndex = 0;
+  /// Tab order, matching the items built in [build].
+  static const _tabRoutes = [
+    '/home/chats',
+    '/home/calls',
+    '/home/templates',
+    '/home/campaigns',
+    '/home/settings',
+  ];
 
   @override
   void initState() {
@@ -65,25 +73,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     context.go('/home/chats/detail', extra: contact);
   }
 
+  /// The visible tab, read from the router rather than held in a field.
+  ///
+  /// A field would drift: several places navigate without going through
+  /// [_onTabSelected] (the notification handler above, and the lost-chat
+  /// redirect in the router), and a drifted index would make the re-tap check
+  /// below fire on the wrong tab.
+  int get _currentIndex {
+    final location =
+        GoRouter.of(context).routeInformationProvider.value.uri.path;
+
+    final index = _tabRoutes.lastIndexWhere(location.startsWith);
+
+    return index == -1 ? 0 : index;
+  }
+
   void _onTabSelected(int index) {
-    setState(() => _currentIndex = index);
-    switch (index) {
-      case 0:
-        context.go('/home/chats');
-        break;
-      case 1:
-        context.go('/home/calls');
-        break;
-      case 2:
-        context.go('/home/templates');
-        break;
-      case 3:
-        context.go('/home/campaigns');
-        break;
-      case 4:
-        context.go('/home/settings');
-        break;
+    // Already here: navigating again would do nothing, so let the screen treat
+    // it as "take me back to the top" instead of swallowing the tap.
+    if (index == _currentIndex) {
+      ref.read(navRetapProvider.notifier).bump(index);
+      return;
     }
+
+    context.go(_tabRoutes[index]);
   }
 
   Future<bool> requestPermissions() async {

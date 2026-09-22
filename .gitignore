@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Generated launch-video artifacts from the /brag skill - large binaries
+# (mp4, licensed music, frame snapshots) that do not belong in source.
+brag-output/

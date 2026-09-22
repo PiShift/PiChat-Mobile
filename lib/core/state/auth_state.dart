@@ -20,6 +20,10 @@ final userIdProvider = StateProvider<int?>((ref) => null);
 /// Used by [ReverbService] to suppress in-app banners for the active conversation.
 final activeContactIdProvider = StateProvider<int?>((ref) => null);
 
+/// Name of that contact, so a surface outside the thread — the voice-note
+/// banner — can say whose message it is holding.
+final activeContactNameProvider = StateProvider<String?>((ref) => null);
+
 /// Payload for a temporary in-app notification banner shown when a message
 /// arrives from a contact other than the currently open one.
 class InAppNotification {

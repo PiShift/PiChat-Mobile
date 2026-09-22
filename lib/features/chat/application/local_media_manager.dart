@@ -107,6 +107,9 @@ class LocalMediaManager {
         if (type.contains('jpeg') || type.contains('jpg')) return '.jpg';
         if (type.contains('png')) return '.png';
         if (type.contains('gif')) return '.gif';
+        // Stickers arrive as image/webp; without this they were saved as
+        // ".img", which no OS can type.
+        if (type.contains('webp')) return '.webp';
         return '.img';
       } else if (type.startsWith('video/')) {
         if (type.contains('mp4')) return '.mp4';
