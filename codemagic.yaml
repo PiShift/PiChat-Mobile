@@ -1,0 +1,55 @@
+# PiChat iOS → TestFlight
+# Trigger: pushing a git tag matching ios-v*  (done by the /deploy-ios Claude Code command)
+workflows:
+  ios-testflight:
+    name: PiChat iOS → TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: PiChat ASC Key         # must match the key name you save in Codemagic EXACTLY
+    environment:
+      ios_signing:
+        distribution_type: app_store            # app_store = required for TestFlight
+        bundle_identifier: com.pishift.pichatapp
+      vars:
+        APP_STORE_APPLE_ID: 6801547899
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'ios-v*'
+          include: true
+    scripts:
+      - name: Set up code signing settings on Xcode project
+        script: |
+          xcode-project use-profiles
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      - name: Install pods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+      - name: Flutter analyze
+        script: |
+          flutter analyze
+      - name: Flutter build ipa
+        script: |
+          # Latest TestFlight build + 1 (falls back to 0 for the very first upload)
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
+          flutter build ipa --release \
+            --build-number=$((LATEST + 1)) \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Internal testers get the build automatically once Apple finishes processing.
+        # Set to true + add beta_groups only when you want EXTERNAL testers (needs Apple beta review).
+        submit_to_testflight: false
+        submit_to_app_store: false
