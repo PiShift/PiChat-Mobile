@@ -21,6 +21,8 @@ PODS:
   - libwebp/sharpyuv (1.6.0)
   - libwebp/webp (1.6.0):
     - libwebp/sharpyuv
+  - receive_sharing_intent (1.8.1):
+    - Flutter
   - record_darwin (1.0.0):
     - Flutter
   - video_thumbnail (0.0.1):
@@ -33,6 +35,7 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_callkit_incoming (from `.symlinks/plugins/flutter_callkit_incoming/ios`)
   - flutter_webrtc (from `.symlinks/plugins/flutter_webrtc/ios`)
+  - receive_sharing_intent (from `.symlinks/plugins/receive_sharing_intent/ios`)
   - record_darwin (from `.symlinks/plugins/record_darwin/ios`)
   - video_thumbnail (from `.symlinks/plugins/video_thumbnail/ios`)
 
@@ -51,6 +54,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_callkit_incoming/ios"
   flutter_webrtc:
     :path: ".symlinks/plugins/flutter_webrtc/ios"
+  receive_sharing_intent:
+    :path: ".symlinks/plugins/receive_sharing_intent/ios"
   record_darwin:
     :path: ".symlinks/plugins/record_darwin/ios"
   video_thumbnail:
@@ -63,6 +68,7 @@ SPEC CHECKSUMS:
   flutter_callkit_incoming: cb8138af67cda6dd981f7101a5d709003af21502
   flutter_webrtc: 57f32415b8744e806f9c2a96ccdb60c6a627ba33
   libwebp: af5937a13536ef73f3784d69cc342b98961acf33
+  receive_sharing_intent: 222384f00ffe7e952bbfabaa9e3967cb87e5fe00
   record_darwin: fb1f375f1d9603714f55b8708a903bbb91ffdb0a
   video_thumbnail: b637e0ad5f588ca9945f6e2c927f73a69a661140
   WebRTC-SDK: 79942c006ea64f6fb48d7da8a4786dfc820bc1db

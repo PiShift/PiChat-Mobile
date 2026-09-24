@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:audio_session/audio_session.dart';
 import 'package:dio/dio.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:pichat/core/services/notification_sound_service.dart';
+import 'package:pichat/features/chat/application/voice_chain.dart';
 import 'package:pichat/features/calls/application/call_fcm_handler.dart';
 import 'package:pichat/features/calls/data/call_api.dart';
 
@@ -76,6 +78,29 @@ class NotificationService {
 
     // Initialize local notifications
     await _initializeLocalNotifications();
+
+    // Play on a voice-note notification. iOS: forwarded by AppDelegate, which
+    // also keeps a tap that launched the app until we ask for it here.
+    // Android: the notification is ours, so a tap that launched the app is
+    // read back from the plugin.
+    _actionsChannel.setMethodCallHandler((call) async {
+      if (call.method == 'playVoice') {
+        _publishPlay(call.arguments, navigate: false);
+      }
+      return null;
+    });
+    if (Platform.isIOS) {
+      try {
+        _publishPlay(await _actionsChannel.invokeMethod('takePendingPlay'),
+            navigate: false);
+      } catch (_) {}
+    } else {
+      final launch = await _localNotifications.getNotificationAppLaunchDetails();
+      final response = launch?.notificationResponse;
+      if ((launch?.didNotificationLaunchApp ?? false) && response != null) {
+        _onLocalNotificationTap(response);
+      }
+    }
 
     // On iOS: suppress the system banner/sound while the app is in the
     // foreground. Reverb delivers live updates; the foreground message handler
@@ -394,6 +419,27 @@ class NotificationService {
     }
   }
 
+  static const _actionsChannel = MethodChannel('pichat/notification_actions');
+
+  /// Play on a voice-note notification: start that note once its bubble is
+  /// on screen, and open the conversation when [navigate] — on iOS Firebase
+  /// already opens it for the same tap, and doing it here too pushed the
+  /// thread twice.
+  void _publishPlay(dynamic raw, {bool navigate = true}) {
+    if (raw is! Map) return;
+
+    final contactUuid = raw['contact_uuid'] as String?;
+    final mediaId = raw['media_id'] as String?;
+
+    if (mediaId != null && mediaId.isNotEmpty) {
+      try {
+        _container?.read(playOnOpenProvider.notifier).state = mediaId;
+      } catch (_) {}
+    }
+
+    if (navigate) _publishTap(contactUuid);
+  }
+
   void _handleNotificationTap(RemoteMessage message) {
     print('NotificationService: Notification tapped: ${message.messageId}');
 
@@ -401,7 +447,14 @@ class NotificationService {
   }
 
   void _onLocalNotificationTap(NotificationResponse response) {
-    _publishTap(response.payload);
+    final payload = parseNotificationPayload(response.payload);
+
+    if (response.actionId == playVoiceActionId) {
+      _publishPlay(payload);
+      return;
+    }
+
+    _publishTap(payload['contact_uuid'] as String?);
   }
 
   /// Records a notification tap for the UI to act on.
@@ -528,12 +581,17 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
     final title = message.data['sender_name'] as String? ?? 'New message';
     final body = message.data['body'] as String? ?? '';
+    final shown = body.isEmpty ? 'New message' : body;
+
+    // Voice notes come data-only on Android precisely so this notification
+    // can carry a Play button, which one Android draws itself cannot.
+    final isVoice = message.data['kind'] == 'voice';
 
     await localNotifications.show(
       id: message.hashCode,
       title: title,
-      body: body.isEmpty ? 'New message' : body,
-      notificationDetails: const NotificationDetails(
+      body: shown,
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           'pichat_messages',
           'New Messages',
@@ -541,14 +599,46 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           priority: Priority.high,
           playSound: true,
           icon: '@mipmap/ic_launcher',
+          // The whole message when pulled down, not one clipped line.
+          styleInformation: BigTextStyleInformation(shown),
+          actions: isVoice
+              ? const [
+                  AndroidNotificationAction(
+                    playVoiceActionId,
+                    '▶  Play',
+                    showsUserInterface: true,
+                    cancelNotification: true,
+                  ),
+                ]
+              : null,
         ),
-        iOS: DarwinNotificationDetails(
+        iOS: const DarwinNotificationDetails(
           presentAlert: true,
           presentBadge: true,
           presentSound: true,
         ),
       ),
-      payload: message.data['contact_uuid'],
+      payload: jsonEncode({
+        'contact_uuid': message.data['contact_uuid'],
+        if (isVoice) 'media_id': message.data['media_id'],
+      }),
     );
   }
+}
+
+/// The Play action on a voice-note notification (Android's id; iOS uses
+/// PLAY_VOICE and reports it through AppDelegate).
+const playVoiceActionId = 'play_voice';
+
+/// A local notification's payload: JSON now, a bare contact uuid from older
+/// notifications still in the tray.
+Map<String, dynamic> parseNotificationPayload(String? payload) {
+  if (payload == null || payload.isEmpty) return const {};
+
+  try {
+    final decoded = jsonDecode(payload);
+    if (decoded is Map<String, dynamic>) return decoded;
+  } catch (_) {}
+
+  return {'contact_uuid': payload};
 }
