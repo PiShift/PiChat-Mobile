@@ -14,6 +14,7 @@ import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/data/models/timeline_event_model.dart';
 import 'package:pichat/features/chat/application/local_media_manager.dart';
 import 'package:pichat/features/chat/application/upload_progress.dart';
+import 'package:pichat/services/outbox_service.dart';
 
 /// Thrown when the server rejects a plain text message because the
 /// 24-hour WhatsApp messaging window has expired.
@@ -79,10 +80,22 @@ class ChatRepository {
 
   /// Another attempt with the same client id is still being sent. The row
   /// stays pending; the outbox checks on it again later.
-  static bool _isSendInProgress(DioException e) =>
-      e.response?.statusCode == 409 &&
-      e.response?.data is Map &&
-      e.response?.data['error'] == 'send_in_progress';
+  ///
+  /// Typically a retry tapped while the cancelled attempt is still winding
+  /// down on the server, so look again shortly rather than at the next
+  /// resume.
+  bool _isSendInProgress(DioException e) {
+    final busy = e.response?.statusCode == 409 &&
+        e.response?.data is Map &&
+        e.response?.data['error'] == 'send_in_progress';
+
+    if (busy) {
+      Future.delayed(const Duration(seconds: 3),
+          () => _ref.read(outboxServiceProvider).sweep());
+    }
+
+    return busy;
+  }
 
   /// Stop a send in flight. Its row is marked failed, and the bubble offers
   /// to send it again.
@@ -91,12 +104,43 @@ class ChatRepository {
 
     if (registry.isInFlight(localId)) {
       registry.cancel(localId);
+      // Aborting our request is not enough: a voice note is fully uploaded
+      // almost at once, and the server then carries on converting it and
+      // handing it to Meta. Without telling the server, the message still
+      // reached the customer a second after the agent cancelled it.
+      unawaited(_cancelOnServer(localId));
       return;
     }
 
     // Pending but not being sent by anyone (cut off by a suspend): there is
     // no request to stop, only the row to give up on.
     await _db.updateChatStatus(localId, 'failed');
+  }
+
+  Future<void> _cancelOnServer(int localId) async {
+    try {
+      final row = await (_db.select(_db.chats)
+            ..where((t) => t.id.equals(localId)))
+          .getSingleOrNull();
+      if (row == null || row.metadata == null) return;
+
+      final clientId =
+          (jsonDecode(row.metadata!) as Map<String, dynamic>)['_clientId'];
+      if (clientId is! String) return;
+
+      final contact = await (_db.select(_db.contacts)
+            ..where((c) => c.id.equals(row.contactId)))
+          .getSingleOrNull();
+      if (contact == null) return;
+
+      await _dio.post(
+        '/contacts/${contact.uuid}/messages/cancel',
+        data: <String, dynamic>{'client_id': clientId},
+      );
+    } catch (_) {
+      // Best effort: if it arrives too late the message was sent, and the
+      // broadcast turns the bubble into a sent message.
+    }
   }
 
   /// Send an unsent row again, reusing its row and client id.
