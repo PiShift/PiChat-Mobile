@@ -34,6 +34,12 @@ target 'Runner' do
   target 'RunnerTests' do
     inherit! :search_paths
   end
+
+  # The share-sheet extension imports receive_sharing_intent, which the app
+  # embeds; it only needs to see its headers and framework.
+  target 'ShareExtension' do
+    inherit! :search_paths
+  end
 end
 
 post_install do |installer|
