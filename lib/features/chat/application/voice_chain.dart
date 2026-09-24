@@ -118,3 +118,8 @@ final voiceChainProvider =
     StateNotifierProvider<VoiceChainNotifier, VoiceChain>(
   (ref) => VoiceChainNotifier(),
 );
+
+/// A voice note to start as soon as its bubble is on screen — set by Play on
+/// a voice-note notification, which also opens the conversation. Holds the
+/// note's media id; the bubble clears it when it takes it.
+final playOnOpenProvider = StateProvider<String?>((ref) => null);

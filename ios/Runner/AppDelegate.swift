@@ -9,6 +9,13 @@ import flutter_callkit_incoming
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, PKPushRegistryDelegate, CallkitIncomingAppDelegate {
+  /// Tells Dart that Play was tapped on a voice-note notification.
+  private var notificationActions: FlutterMethodChannel?
+
+  /// A Play tap Dart has not taken yet — it launched the app, before Dart
+  /// was listening.
+  private var pendingVoicePlay: [String: String]?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -64,6 +71,20 @@ import flutter_callkit_incoming
           result(FlutterMethodNotImplemented)
         }
       }
+
+      let actions = FlutterMethodChannel(
+        name: "pichat/notification_actions",
+        binaryMessenger: controller.binaryMessenger
+      )
+      actions.setMethodCallHandler { [weak self] call, result in
+        guard call.method == "takePendingPlay" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        result(self?.pendingVoicePlay)
+        self?.pendingVoicePlay = nil
+      }
+      notificationActions = actions
     }
 
     // Ask for standard remote-push permission so FCM can wake the app
@@ -72,6 +93,17 @@ import flutter_callkit_incoming
       UNUserNotificationCenter.current().delegate = self
       let opts: UNAuthorizationOptions = [.alert, .badge, .sound]
       UNUserNotificationCenter.current().requestAuthorization(options: opts) { _, _ in }
+
+      // Voice-note pushes carry this category (set by the server) and get a
+      // Play button that opens the conversation and starts the note.
+      let play = UNNotificationAction(
+        identifier: "PLAY_VOICE",
+        title: NSLocalizedString("Play", comment: "Play a voice note from its notification"),
+        options: [.foreground]
+      )
+      UNUserNotificationCenter.current().setNotificationCategories([
+        UNNotificationCategory(identifier: "VOICE_NOTE", actions: [play], intentIdentifiers: [], options: [])
+      ])
     }
     application.registerForRemoteNotifications()
 
@@ -83,6 +115,33 @@ import flutter_callkit_incoming
     voipRegistry.desiredPushTypes = [.voIP]
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // MARK: - Notification actions
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    if response.actionIdentifier == "PLAY_VOICE" {
+      let info = response.notification.request.content.userInfo
+      let play = [
+        "contact_uuid": info["contact_uuid"] as? String ?? "",
+        "media_id": info["media_id"] as? String ?? "",
+      ]
+      // Kept until Dart confirms it has it: on a cold start nothing is
+      // listening yet, and Dart asks for it once it is.
+      pendingVoicePlay = play
+      notificationActions?.invokeMethod("playVoice", arguments: play) { [weak self] result in
+        if !(result is FlutterError) && (result as? NSObject) !== FlutterMethodNotImplemented {
+          self?.pendingVoicePlay = nil
+        }
+      }
+    }
+
+    // Firebase still sees the tap and opens the conversation as usual.
+    super.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
   }
 
   // MARK: - PushKit (VoIP) — wake-up channel for incoming calls

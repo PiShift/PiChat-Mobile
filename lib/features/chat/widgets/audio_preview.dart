@@ -49,6 +49,39 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
   // rebuilt this bubble — a few pixels of scrolling was enough — so playback
   // stopped mid-note and every timestamp reset at once.
 
+  @override
+  void initState() {
+    super.initState();
+
+    // Play from a notification. fireImmediately, because the request is
+    // usually set before this bubble exists: the tap opens the conversation
+    // and the note only arrives with its messages.
+    ref.listenManual<String?>(playOnOpenProvider, (_, id) {
+      if (id == widget.mediaId) Future.microtask(_playOnOpen);
+    }, fireImmediately: true);
+  }
+
+  /// Start this note for Play on its notification, fetching it first if it
+  /// has not been downloaded yet.
+  Future<void> _playOnOpen() async {
+    final request = ref.read(playOnOpenProvider.notifier);
+    if (request.state != widget.mediaId) return;
+    request.state = null;
+
+    var path = _resolveLocalPath(ref.read(mediaPlaybackProvider(widget.mediaId)));
+
+    if (path == null || !File(path).existsSync()) {
+      await _download();
+      if (!mounted) return;
+      path = LocalMediaManager.resolve(
+          ref.read(mediaPlaybackProvider(widget.mediaId)).localPath);
+    }
+
+    if (path == null || !mounted) return;
+
+    await ref.read(voicePlayerProvider.notifier).play(widget.mediaId, path);
+  }
+
   /// Start this note because the previous one just finished.
   Future<void> _playFromChain(String path) async {
     await ref.read(voicePlayerProvider.notifier).play(widget.mediaId, path);
