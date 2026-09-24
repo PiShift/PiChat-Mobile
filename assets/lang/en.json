@@ -72,6 +72,10 @@
         },
         "media": {
             "retry_unavailable": "Original file is no longer available. Please re-attach to send."
+        },
+        "actions": {
+            "copy": "Copy",
+            "copied": "Copied"
         }
     },
     "new_chat": {

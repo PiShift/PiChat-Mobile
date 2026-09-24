@@ -22,6 +22,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/state/auth_state.dart';
 import '../../chat/application/main_controller.dart';
+import '../../chat/application/voice_player.dart';
 import '../data/call_api.dart';
 import '../data/call_models.dart';
 import 'call_signaling_service.dart';
@@ -70,6 +71,21 @@ class CallState {
 class CallController extends StateNotifier<CallState> {
   CallController(this._ref) : super(const CallState()) {
     _bindCallkit();
+    addListener(_pauseVoiceNotes, fireImmediately: false);
+  }
+
+  /// A call takes the audio over: a voice note left playing under it talked
+  /// over the customer.
+  void _pauseVoiceNotes(CallState s) {
+    switch (s.phase) {
+      case CallPhase.dialing:
+      case CallPhase.ringing:
+      case CallPhase.connecting:
+      case CallPhase.inProgress:
+        _ref.read(voicePlayerProvider.notifier).pause();
+      default:
+        break;
+    }
   }
 
   final Ref _ref;

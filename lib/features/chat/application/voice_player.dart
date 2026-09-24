@@ -257,13 +257,21 @@ class VoicePlayerNotifier extends StateNotifier<VoicePlayback> {
     await _player.pause();
     await _player.seek(Duration.zero);
 
-    if (finished == null || owner == null) return;
+    if (finished == null || owner == null) {
+      _release();
+      return;
+    }
 
     _rememberLinks(owner);
 
     final follower = _linksOwner == owner ? _links[finished] : null;
 
-    if (follower == null) return;
+    // End of the run: let go of the note so the banner goes away. Leaving it
+    // loaded kept the mini player up, paused at 0:00, after every note.
+    if (follower == null) {
+      _release();
+      return;
+    }
 
     final path = _paths[follower];
 
@@ -278,8 +286,18 @@ class VoicePlayerNotifier extends StateNotifier<VoicePlayback> {
       // play() now returns once the note has *started*, so the guard is
       // released here rather than when the whole run ends.
     } else {
+      // The next file isn't known here. A mounted bubble picks the request up
+      // and play() loads it again; with none mounted (the agent is in another
+      // chat) the run ends, and the banner must not hang on the finished note.
+      _release();
       _ref.read(voiceChainProvider.notifier).requestAutoPlay(follower);
     }
+  }
+
+  /// Forget the loaded note without touching the player — it is already
+  /// paused and rewound.
+  void _release() {
+    if (mounted) state = VoicePlayback(speed: state.speed);
   }
 
   @override

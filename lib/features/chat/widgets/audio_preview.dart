@@ -25,12 +25,17 @@ class AudioPreview extends ConsumerStatefulWidget {
   /// send instead of showing a download button.
   final String? localFilePath;
 
+  /// Shown in place of the play button — the upload control while an
+  /// outgoing voice note is being sent or has failed.
+  final Widget? transport;
+
   const AudioPreview({
     required this.media,
     required this.mediaId,
     required this.contactId,
     this.metaId,
     this.localFilePath,
+    this.transport,
     super.key,
   });
 
@@ -222,8 +227,9 @@ class _AudioPreviewState extends ConsumerState<AudioPreview> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildTransportButton(
-              playback, hasLocalFile, localPath, colors, isPlaying),
+          widget.transport ??
+              _buildTransportButton(
+                  playback, hasLocalFile, localPath, colors, isPlaying),
           const SizedBox(width: 10),
           Expanded(
             child: Column(

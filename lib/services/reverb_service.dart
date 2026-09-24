@@ -353,15 +353,33 @@ class ReverbService {
       Map<String, dynamic>? inheritedCaptionMap; // caption block from temp row
 
       if (chat.type == 'outbound') {
-        // Find the OLDEST pending/sent temp row for this contact (FIFO matching).
-        // Temp rows have negative IDs. Since id = -(timestamp), the least-negative
-        // value is the oldest message, so we ORDER BY id DESC and take the first.
-        final tempRows = await (_db.select(_db.chats)
+        // Match the echo to the optimistic row it replaces. A client id pins
+        // it exactly; guessing by age (the oldest temp row) swapped the wrong
+        // bubbles when several sends were in flight, and deleted this device's
+        // pending row when the echo was a message another agent sent.
+        final candidates = await (_db.select(_db.chats)
           ..where((t) =>
               t.contactId.equals(chat.contactId) & t.id.isSmallerThanValue(0))
-          ..orderBy([(t) => OrderingTerm(expression: t.id, mode: OrderingMode.desc)])
-          ..limit(1))
+          ..orderBy([(t) => OrderingTerm(expression: t.id, mode: OrderingMode.desc)]))
             .get();
+
+        String? clientIdOf(ChatData row) {
+          try {
+            final raw = row.metadata;
+            if (raw == null) return null;
+            return (jsonDecode(raw) as Map<String, dynamic>)['_clientId'] as String?;
+          } catch (_) {
+            return null;
+          }
+        }
+
+        final echoId = chat.clientId;
+        final tempRows = echoId != null
+            ? candidates.where((r) => clientIdOf(r) == echoId).take(1).toList()
+            // No client id on the echo: only rows from builds that did not
+            // send one can be matched by age. Rows that carry an id are
+            // swapped by their own HTTP response.
+            : candidates.where((r) => clientIdOf(r) == null).take(1).toList();
 
         if (tempRows.isNotEmpty) {
           final tempRow = tempRows.first;

@@ -18,6 +18,7 @@ import 'package:pichat/features/chat/widgets/recording_wave_bar.dart';
 import 'package:pichat/features/chat/widgets/voice_waveform.dart';
 import 'package:pichat/features/chat/application/waveform_provider.dart';
 import 'package:pichat/features/chat/application/voice_chain.dart';
+import 'package:pichat/features/chat/application/voice_player.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:pichat/core/state/auth_state.dart';
@@ -131,7 +132,9 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   /// several times a second, which made every audio bubble's duration label
   /// flicker for as long as a recording was running.
   DateTime? _recordStart;
-  final AudioRecorder _audioRecorder = AudioRecorder();
+
+  /// Replaced after every recording — see [_resetRecorder].
+  AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _previewPlayer = AudioPlayer();
   bool _previewIsPlaying = false;
   StreamSubscription<PlayerState>? _previewStateSub;
@@ -1832,6 +1835,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     // the user's full attention.
     _closePanel();
     _messageFocusNode.unfocus();
+    _pauseSharedAudio();
 
     if (!await _audioRecorder.hasPermission()) {
       final status = await Permission.microphone.request();
@@ -1885,8 +1889,30 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     });
   }
 
+  /// Pause whatever voice note is playing and drop any pending auto-play.
+  ///
+  /// Paused rather than stopped, so the agent can pick it up again from the
+  /// bubble or the banner once they are done recording or picking a file.
+  void _pauseSharedAudio() {
+    ref.read(voicePlayerProvider.notifier).pause();
+    ref.read(voiceChainProvider.notifier).cancel();
+  }
+
+  /// Swap in a fresh recorder.
+  ///
+  /// record 5.x hands out one single-subscription amplitude stream for the
+  /// recorder's whole life, so the second [RecordingWaveBar] to listen to it
+  /// threw and the waveform never appeared again. A recorder per recording
+  /// sidesteps that.
+  void _resetRecorder() {
+    final old = _audioRecorder;
+    _audioRecorder = AudioRecorder();
+    unawaited(old.dispose());
+  }
+
   Future<void> _cancelRecording() async {
     final path = await _audioRecorder.stop();
+    _resetRecorder();
     if (path != null) {
       final f = File(path);
       if (await f.exists()) {
@@ -1904,38 +1930,66 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     });
   }
 
-  Future<void> _stopRecordingForReview() async {
+  /// Stop capturing and hand back the clip, or null when there is nothing
+  /// worth keeping. Leaves the composer out of recording mode either way.
+  Future<({String path, Duration length})?> _finishRecording() async {
     final start = _recordStart;
     final captured =
         start == null ? Duration.zero : DateTime.now().difference(start);
     final path = await _audioRecorder.stop();
-    if (path == null) {
-      if (mounted) setState(() => _isRecording = false);
-      return;
-    }
-    // Anything below ~0.7s is almost certainly an accidental tap — drop it.
-    if (captured.inMilliseconds < 700) {
-      try {
-        await File(path).delete();
-      } catch (_) {}
+    _resetRecorder();
+
+    void leaveRecording() {
       if (!mounted) return;
       setState(() {
         _isRecording = false;
         _recordStart = null;
         _recordedAudioPath = null;
       });
-      return;
     }
+
+    if (path == null) {
+      leaveRecording();
+      return null;
+    }
+    // Anything below ~0.7s is almost certainly an accidental tap — drop it.
+    if (captured.inMilliseconds < 700) {
+      try {
+        await File(path).delete();
+      } catch (_) {}
+      leaveRecording();
+      return null;
+    }
+    return (path: path, length: captured);
+  }
+
+  Future<void> _stopRecordingForReview() async {
+    final clip = await _finishRecording();
+    if (clip == null) return;
     try {
-      await _previewPlayer.setFilePath(path);
+      await _previewPlayer.setFilePath(clip.path);
     } catch (_) {}
     if (!mounted) return;
     setState(() {
       _isRecording = false;
       _recordStart = null;
-      _recordedAudioPath = path;
-      _recordedDuration = captured;
+      _recordedAudioPath = clip.path;
+      _recordedDuration = clip.length;
     });
+  }
+
+  /// Send straight from the recording row, skipping the review step.
+  Future<void> _sendRecordingNow() async {
+    final clip = await _finishRecording();
+    if (clip == null) return;
+    if (mounted) {
+      setState(() {
+        _isRecording = false;
+        _recordStart = null;
+        _recordedDuration = Duration.zero;
+      });
+    }
+    await _sendMediaFile(File(clip.path), isVoice: true);
   }
 
   Future<void> _deleteRecording() async {
@@ -1961,6 +2015,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
     if (_previewIsPlaying) {
       await _previewPlayer.pause();
     } else {
+      _pauseSharedAudio();
       await _previewPlayer.play();
     }
   }
@@ -2133,55 +2188,78 @@ class _ChatThreadState extends ConsumerState<ChatThread>
   }
 
   Widget _buildRecordingRow() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // LEFT: trash to abort
-        _IconTapTarget(
-          onTap: _cancelRecording,
-          child: Icon(LucideIcons.trash2,
-              size: 22, color: PiColors.of(context).error),
-        ),
-        // CENTER: pulsing red dot + elapsed timer in a pill
-        Expanded(
-          child: Container(
-            height: 38,
-            decoration: BoxDecoration(
-              color: PiColors.of(context).surface,
-              borderRadius: BorderRadius.circular(20),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // LEFT: trash to abort
+            _IconTapTarget(
+              onTap: _cancelRecording,
+              child: Icon(LucideIcons.trash2,
+                  size: 22, color: PiColors.of(context).error),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(
-              children: [
-                _PulsingRedDot(),
-                const SizedBox(width: 10),
-                // Owns its own clock and level stream, so recording no longer
-                // rebuilds the conversation behind it.
-                Expanded(
-                  child: RecordingWaveBar(
-                    recorder: _audioRecorder,
-                    startedAt: _recordStart ?? DateTime.now(),
-                    barColor: PiColors.of(context).primary500,
-                    textColor: PiColors.of(context).textPrimary,
-                  ),
+            // CENTER: pulsing red dot + elapsed timer in a pill
+            Expanded(
+              child: Container(
+                height: 38,
+                decoration: BoxDecoration(
+                  color: PiColors.of(context).surface,
+                  borderRadius: BorderRadius.circular(20),
                 ),
-              ],
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(
+                  children: [
+                    _PulsingRedDot(),
+                    const SizedBox(width: 10),
+                    // Owns its own clock and level stream, so recording no
+                    // longer rebuilds the conversation behind it. Keyed by the
+                    // start time so every recording gets a fresh bar on its
+                    // fresh recorder.
+                    Expanded(
+                      child: RecordingWaveBar(
+                        key: ValueKey(_recordStart),
+                        recorder: _audioRecorder,
+                        startedAt: _recordStart ?? DateTime.now(),
+                        barColor: PiColors.of(context).primary500,
+                        textColor: PiColors.of(context).textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            // RIGHT: send straight away, no review step
+            GestureDetector(
+              onTap: _sendRecordingNow,
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: const BoxDecoration(
+                  color: PiPalette.primary500,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(LucideIcons.send,
+                    color: PiPalette.white, size: 18),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        // RIGHT: stop = move to review
+        const SizedBox(height: 8),
+        // BELOW: stop = move to review
         GestureDetector(
           onTap: _stopRecordingForReview,
           child: Container(
             width: 38,
             height: 38,
-            decoration: const BoxDecoration(
-              color: PiPalette.primary500,
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
+              border: Border.all(color: PiPalette.error500, width: 2),
             ),
             child: const Icon(LucideIcons.square,
-                color: PiPalette.white, size: 18),
+                color: PiPalette.error500, size: 16),
           ),
         ),
       ],
@@ -2662,6 +2740,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   /// Pick image from gallery or camera — shows preview before sending
   Future<void> _pickImage(ImageSource source) async {
+    _pauseSharedAudio();
     try {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
@@ -2696,6 +2775,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
   /// Pick document file — shows preview before sending
   Future<void> _pickDocument() async {
+    _pauseSharedAudio();
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.any,
@@ -2730,10 +2810,11 @@ class _ChatThreadState extends ConsumerState<ChatThread>
       {String? caption, bool isVoice = false}) async {
     final chatRepo = ref.read(chatRepositoryProvider);
     final orgId = ref.read(organizationProvider)?.id ?? 0;
+    final stored = await _keepOutgoingFile(file);
 
     unawaited(chatRepo.sendMediaMessage(
       widget.contact.uuid,
-      file,
+      stored,
       caption: caption,
       contactId: widget.contact.id,
       orgId: orgId,
@@ -2742,6 +2823,28 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
     _isAtBottom = true;
     Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
+  }
+
+  /// Copy a picked file into our own media tree before it is sent.
+  ///
+  /// Pickers hand back paths in their cache, which the OS clears — often
+  /// before a failed or cancelled upload is retried, leaving nothing to
+  /// resend. Each send gets its own folder so the original file name, which
+  /// the customer sees on documents, is kept as is.
+  Future<File> _keepOutgoingFile(File file) async {
+    if (file.path.contains('/chat_media/')) return file;
+
+    try {
+      final dir = await LocalMediaManager().getMediaPath(
+        '${widget.contact.id}',
+        'outgoing/${DateTime.now().microsecondsSinceEpoch}',
+      );
+      final name = file.uri.pathSegments.last;
+
+      return await file.copy('$dir/$name');
+    } catch (_) {
+      return file;
+    }
   }
 
   /// Open the location-sharing sheet and dispatch the result.

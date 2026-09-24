@@ -26,6 +26,10 @@ class Chat {
   final ChatMedia? media;
   final List<ChatLog> logs;
 
+  /// The id the app sent this message under, echoed back by the server.
+  /// Only used to match a broadcast to its optimistic row; not stored.
+  final String? clientId;
+
   Chat({
     required this.id,
     required this.orgId,
@@ -45,6 +49,7 @@ class Chat {
     this.deletedBy,
     this.media,
     this.logs = const [],
+    this.clientId,
   });
 
   // ✅ From API JSON (full chat object)
@@ -66,6 +71,7 @@ class Chat {
     updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
     deletedAt: json['deleted_at'] != null ? DateTime.parse(json['deleted_at']) : null,
     deletedBy: json['deleted_by'],
+    clientId: json['client_id'] as String?,
     // Both server relations land in one list, told apart by ChatLog.isAgentRead:
     // `logs` are WhatsApp delivery receipts, `readers` are agents on this
     // organization who opened the message. This was never parsed before, which
@@ -222,6 +228,7 @@ class Chat {
     int? deletedBy,
     ChatMedia? media,
     List<ChatLog>? logs,
+    String? clientId,
   }) {
     return Chat(
       id: id ?? this.id,
@@ -242,6 +249,7 @@ class Chat {
       deletedBy: deletedBy ?? this.deletedBy,
       media: media ?? this.media,
       logs: logs ?? this.logs,
+      clientId: clientId ?? this.clientId,
     );
   }
 

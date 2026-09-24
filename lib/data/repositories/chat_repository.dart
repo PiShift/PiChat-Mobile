@@ -7,11 +7,13 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pichat/core/network/dio_provider.dart';
+import 'package:pichat/core/platform/background_task.dart';
 import 'package:pichat/data/db/app_database.dart';
 import 'package:pichat/data/db/database_provider.dart';
 import 'package:pichat/data/models/chat_model.dart';
 import 'package:pichat/data/models/timeline_event_model.dart';
 import 'package:pichat/features/chat/application/local_media_manager.dart';
+import 'package:pichat/features/chat/application/upload_progress.dart';
 
 /// Thrown when the server rejects a plain text message because the
 /// 24-hour WhatsApp messaging window has expired.
@@ -47,6 +49,119 @@ class ChatRepository {
   final int _maxRetries = 5;
 
   ChatRepository(this._dio, this._db, this._ref);
+
+  /// A fresh id for a message about to be sent. Kept on the row and sent on
+  /// every attempt, so the server returns the message it already sent
+  /// instead of sending a retry to the customer a second time.
+  static String _newClientId() {
+    final rand = math.Random.secure();
+
+    return List.generate(16, (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
+  /// Run one send attempt: registered so it can be cancelled and its
+  /// progress shown, and given background time so leaving the app does not
+  /// cut it off.
+  Future<Response<dynamic>> _deliver(
+    int localId,
+    Future<Response<dynamic>> Function(CancelToken token) post,
+  ) async {
+    final registry = _ref.read(uploadRegistryProvider.notifier);
+    final token = registry.begin(localId);
+
+    try {
+      return await BackgroundTask.run(() => post(token));
+    } finally {
+      registry.end(localId);
+    }
+  }
+
+  /// Another attempt with the same client id is still being sent. The row
+  /// stays pending; the outbox checks on it again later.
+  static bool _isSendInProgress(DioException e) =>
+      e.response?.statusCode == 409 &&
+      e.response?.data is Map &&
+      e.response?.data['error'] == 'send_in_progress';
+
+  /// Stop a send in flight. Its row is marked failed, and the bubble offers
+  /// to send it again.
+  Future<void> cancelSend(int localId) async {
+    final registry = _ref.read(uploadRegistryProvider.notifier);
+
+    if (registry.isInFlight(localId)) {
+      registry.cancel(localId);
+      return;
+    }
+
+    // Pending but not being sent by anyone (cut off by a suspend): there is
+    // no request to stop, only the row to give up on.
+    await _db.updateChatStatus(localId, 'failed');
+  }
+
+  /// Send an unsent row again, reusing its row and client id.
+  ///
+  /// Returns false when there is nothing to resend it from — a media message
+  /// whose local file is gone, or a row of a type that cannot be resent.
+  Future<bool> resend(Chat row, {required String contactUuid}) async {
+    final meta = row.metadata ?? const <String, dynamic>{};
+    final type = meta['type'] as String? ?? 'text';
+    final clientId = meta['_clientId'] as String?;
+
+    switch (type) {
+      case 'text':
+        final body = (meta['text'] as Map?)?['body'] as String? ?? '';
+        if (body.trim().isEmpty) return false;
+        unawaited(sendTextMessage(contactUuid, body,
+            contactId: row.contactId,
+            orgId: row.orgId,
+            tempId: row.id,
+            clientId: clientId).catchError((_) => row));
+        return true;
+
+      case 'location':
+        final loc = Map<String, dynamic>.from((meta['location'] as Map?) ?? {});
+        final lat = (loc['latitude'] as num?)?.toDouble();
+        final lng = (loc['longitude'] as num?)?.toDouble();
+        if (lat == null || lng == null) return false;
+        unawaited(sendLocation(contactUuid,
+            latitude: lat,
+            longitude: lng,
+            name: loc['name'] as String?,
+            address: loc['address'] as String?,
+            contactId: row.contactId,
+            orgId: row.orgId,
+            tempId: row.id,
+            clientId: clientId).catchError((_) => row));
+        return true;
+
+      case 'contacts':
+        final cards = ((meta['contacts'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((c) => Map<String, dynamic>.from(c))
+            .toList();
+        if (cards.isEmpty) return false;
+        unawaited(sendContactCards(contactUuid, cards,
+            contactId: row.contactId,
+            orgId: row.orgId,
+            tempId: row.id,
+            clientId: clientId).catchError((_) => row));
+        return true;
+
+      default:
+        final path = LocalMediaManager.resolve(meta['_localFilePath'] as String?);
+        if (path == null || !File(path).existsSync()) return false;
+        final block = meta[type] is Map ? meta[type] as Map : const {};
+        unawaited(sendMediaMessage(contactUuid, File(path),
+            caption: block['caption'] as String?,
+            contactId: row.contactId,
+            orgId: row.orgId,
+            tempId: row.id,
+            clientId: clientId,
+            isVoice: block['voice'] == true).catchError((_) => row));
+        return true;
+    }
+  }
 
   Future<List<Chat>> getMessages(
       int contactId, {
@@ -157,9 +272,11 @@ class ChatRepository {
     required int contactId,
     required int orgId,
     int? tempId,
+    String? clientId,
   }) async {
     // Generate a stable negative temp ID so the caller can retry with the same row
     final localId = tempId ?? -(DateTime.now().millisecondsSinceEpoch);
+    final cid = clientId ?? _newClientId();
 
     final optimistic = Chat(
       id: localId,
@@ -167,7 +284,11 @@ class ChatRepository {
       uuid: 'pending_$localId',
       contactId: contactId,
       type: 'outbound',
-      metadata: {'type': 'text', 'text': {'body': message}},
+      metadata: {
+        'type': 'text',
+        'text': {'body': message},
+        '_clientId': cid,
+      },
       status: 'pending',
       isRead: true,
       createdAt: DateTime.now(),
@@ -176,9 +297,17 @@ class ChatRepository {
     await _db.into(_db.chats).insertOnConflictUpdate(optimistic.toCompanion());
 
     try {
-      final response = await _dio.post(
-        '/contacts/$contactUuid/messages',
-        data: <String, dynamic>{'message': message, 'type': 'text'},
+      final response = await _deliver(
+        localId,
+        (token) => _dio.post(
+          '/contacts/$contactUuid/messages',
+          data: <String, dynamic>{
+            'message': message,
+            'type': 'text',
+            'client_id': cid,
+          },
+          cancelToken: token,
+        ),
       );
 
       if (response.data['success'] == true) {
@@ -201,6 +330,7 @@ class ChatRepository {
       await _db.updateChatStatus(localId, 'failed');
       throw Exception(response.data['message'] ?? 'Failed to send message');
     } on DioException catch (e) {
+      if (_isSendInProgress(e)) return optimistic;
       // 422 message_window_expired: remove the optimistic row — no retry makes sense.
       // The caller should show the 24h-expired banner instead.
       final errorCode = e.response?.data?['error'] as String?;
@@ -228,9 +358,11 @@ class ChatRepository {
     required int contactId,
     required int orgId,
     int? tempId,
+    String? clientId,
     bool isVoice = false,
   }) async {
     final localId = tempId ?? -(DateTime.now().millisecondsSinceEpoch);
+    final cid = clientId ?? _newClientId();
     final fileName = file.path.split('/').last;
     final isImage = _isImageFile(fileName);
 
@@ -255,6 +387,7 @@ class ChatRepository {
         // downloading. Stored via storedPath() so a recording kept in our own
         // media tree stays resolvable after a restart or reinstall.
         '_localFilePath': LocalMediaManager.storedPath(file.path),
+        '_clientId': cid,
       },
       status: 'pending',
       isRead: true,
@@ -268,11 +401,21 @@ class ChatRepository {
         'file': await MultipartFile.fromFile(file.path, filename: fileName),
         if (caption != null) 'caption': caption,
         if (isVoice) 'voice': '1',
+        'client_id': cid,
       });
 
-      final response = await _dio.post(
-        '/contacts/$contactUuid/media',
-        data: formData,
+      final registry = _ref.read(uploadRegistryProvider.notifier);
+      final response = await _deliver(
+        localId,
+        (token) => _dio.post(
+          '/contacts/$contactUuid/media',
+          data: formData,
+          cancelToken: token,
+          onSendProgress: (sent, total) =>
+              registry.progress(localId, sent, total),
+          // Large videos on a slow link take far longer than the default.
+          options: Options(sendTimeout: const Duration(minutes: 5)),
+        ),
       );
 
       if (response.data['success'] == true) {
@@ -308,6 +451,12 @@ class ChatRepository {
 
       await _db.updateChatStatus(localId, 'failed');
       throw Exception(response.data['message'] ?? 'Failed to send media');
+    } on DioException catch (e) {
+      if (_isSendInProgress(e)) return optimistic;
+      await _db.updateChatStatus(localId, 'failed');
+      // The agent stopped it; the bubble's retry button is the whole answer.
+      if (CancelToken.isCancel(e)) return optimistic.copyWith(status: 'failed');
+      rethrow;
     } catch (e) {
       await _db.updateChatStatus(localId, 'failed');
       rethrow;
@@ -326,8 +475,10 @@ class ChatRepository {
     required int contactId,
     required int orgId,
     int? tempId,
+    String? clientId,
   }) async {
     final localId = tempId ?? -(DateTime.now().millisecondsSinceEpoch);
+    final cid = clientId ?? _newClientId();
 
     final locationPayload = <String, dynamic>{
       'latitude': latitude,
@@ -342,7 +493,11 @@ class ChatRepository {
       uuid: 'pending_$localId',
       contactId: contactId,
       type: 'outbound',
-      metadata: {'type': 'location', 'location': locationPayload},
+      metadata: {
+        'type': 'location',
+        'location': locationPayload,
+        '_clientId': cid,
+      },
       status: 'pending',
       isRead: true,
       createdAt: DateTime.now(),
@@ -351,14 +506,19 @@ class ChatRepository {
     await _db.into(_db.chats).insertOnConflictUpdate(optimistic.toCompanion());
 
     try {
-      final response = await _dio.post(
-        '/contacts/$contactUuid/location',
-        data: <String, dynamic>{
-          'latitude': latitude,
-          'longitude': longitude,
-          if (name != null && name.isNotEmpty) 'name': name,
-          if (address != null && address.isNotEmpty) 'address': address,
-        },
+      final response = await _deliver(
+        localId,
+        (token) => _dio.post(
+          '/contacts/$contactUuid/location',
+          data: <String, dynamic>{
+            'latitude': latitude,
+            'longitude': longitude,
+            if (name != null && name.isNotEmpty) 'name': name,
+            if (address != null && address.isNotEmpty) 'address': address,
+            'client_id': cid,
+          },
+          cancelToken: token,
+        ),
       );
 
       if (response.data['success'] == true) {
@@ -377,6 +537,7 @@ class ChatRepository {
       await _db.updateChatStatus(localId, 'failed');
       throw Exception(response.data['message'] ?? 'Failed to send location');
     } on DioException catch (e) {
+      if (_isSendInProgress(e)) return optimistic;
       final errorCode = e.response?.data?['error'] as String?;
       if (e.response?.statusCode == 422 && errorCode == 'message_window_expired') {
         await _db.deleteChat(localId);
@@ -399,8 +560,10 @@ class ChatRepository {
     required int contactId,
     required int orgId,
     int? tempId,
+    String? clientId,
   }) async {
     final localId = tempId ?? -(DateTime.now().millisecondsSinceEpoch);
+    final cid = clientId ?? _newClientId();
 
     final optimistic = Chat(
       id: localId,
@@ -408,7 +571,11 @@ class ChatRepository {
       uuid: 'pending_$localId',
       contactId: contactId,
       type: 'outbound',
-      metadata: {'type': 'contacts', 'contacts': contacts},
+      metadata: {
+        'type': 'contacts',
+        'contacts': contacts,
+        '_clientId': cid,
+      },
       status: 'pending',
       isRead: true,
       createdAt: DateTime.now(),
@@ -417,9 +584,13 @@ class ChatRepository {
     await _db.into(_db.chats).insertOnConflictUpdate(optimistic.toCompanion());
 
     try {
-      final response = await _dio.post(
-        '/contacts/$contactUuid/contact-cards',
-        data: <String, dynamic>{'contacts': contacts},
+      final response = await _deliver(
+        localId,
+        (token) => _dio.post(
+          '/contacts/$contactUuid/contact-cards',
+          data: <String, dynamic>{'contacts': contacts, 'client_id': cid},
+          cancelToken: token,
+        ),
       );
 
       if (response.data['success'] == true) {
@@ -438,6 +609,7 @@ class ChatRepository {
       await _db.updateChatStatus(localId, 'failed');
       throw Exception(response.data['message'] ?? 'Failed to send contact');
     } on DioException catch (e) {
+      if (_isSendInProgress(e)) return optimistic;
       final errorCode = e.response?.data?['error'] as String?;
       if (e.response?.statusCode == 422 && errorCode == 'message_window_expired') {
         await _db.deleteChat(localId);

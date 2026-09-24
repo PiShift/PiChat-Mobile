@@ -1,4 +1,5 @@
 import 'package:easy_localization/easy_localization.dart';
+import 'package:pichat/services/outbox_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -67,6 +68,10 @@ class _PiChatAppState extends ConsumerState<PiChatApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Pick up sends a previous run left unfinished, once the session is back.
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) ref.read(outboxServiceProvider).sweep();
+    });
   }
 
   @override
@@ -88,6 +93,9 @@ class _PiChatAppState extends ConsumerState<PiChatApp>
     // device is still real; a stale row means calls get dispatched to a
     // device that will never ring.
     NotificationService().registerCallingDevice();
+
+    // Finish sends that were cut off while the app was in the background.
+    ref.read(outboxServiceProvider).sweep();
   }
 
   @override

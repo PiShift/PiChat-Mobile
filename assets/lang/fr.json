@@ -69,6 +69,10 @@
         },
         "error": {
             "loading_messages": "Erreur lors du chargement des messages : {error}"
+        },
+        "actions": {
+            "copy": "Copier",
+            "copied": "Copié"
         }
     },
     "new_chat": {

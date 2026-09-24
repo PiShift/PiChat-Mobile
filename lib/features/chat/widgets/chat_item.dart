@@ -18,6 +18,7 @@ import 'package:pichat/data/repositories/contact_repository.dart';
 import 'package:pichat/features/chat/application/main_controller.dart';
 import 'package:pichat/features/chat/widgets/image_preview.dart';
 import 'package:pichat/features/chat/widgets/message_info_sheet.dart';
+import 'package:pichat/features/chat/widgets/upload_status_button.dart';
 
 import 'audio_preview.dart';
 import 'document_preview.dart';
@@ -57,7 +58,8 @@ class ChatMessageItem extends ConsumerWidget {
   bool get isPending => message.status == 'pending';
   bool get isFailed => message.status == 'failed';
 
-  Widget _buildMediaPreview(BuildContext context, String mediaType) {
+  Widget _buildMediaPreview(
+      BuildContext context, WidgetRef ref, String mediaType) {
     final localPath =
         LocalMediaManager.resolve(metadata['_localFilePath'] as String?);
 
@@ -128,6 +130,7 @@ class ChatMessageItem extends ConsumerWidget {
               mediaId: 'local-${message.id}',
               contactId: message.contactId.toString(),
               localFilePath: localPath,
+              transport: _uploadControl(context, ref, size: 36, onMedia: false),
             );
           }
           return const SizedBox.shrink();
@@ -541,11 +544,50 @@ class ChatMessageItem extends ConsumerWidget {
     }
   }
 
-  /// Overlays a semi-transparent layer with an error icon + retry button
-  /// over the message bubble for outbound failed messages. Pending uses a
-  /// subtle clock indicator in the footer instead so the user still sees
-  /// the actual content (image / audio player / text).
-  Widget _buildStatusOverlay(BuildContext context, WidgetRef ref) {
+  /// Whether this outgoing message is a file upload, as opposed to text,
+  /// a location or a contact card.
+  bool _isUpload(String type) =>
+      message.id < 0 &&
+      metadata['_localFilePath'] != null &&
+      const {'image', 'video', 'audio', 'document', 'sticker'}.contains(type);
+
+  /// The progress / cancel / resend control for an upload, or null when the
+  /// message is not an upload in progress or failed.
+  Widget? _uploadControl(
+    BuildContext context,
+    WidgetRef ref, {
+    double size = 48,
+    bool onMedia = true,
+  }) {
+    if (!isPending && !isFailed) return null;
+
+    return UploadStatusButton(
+      localId: message.id,
+      failed: isFailed,
+      size: size,
+      onMedia: onMedia,
+      onCancel: () => ref.read(chatRepositoryProvider).cancelSend(message.id),
+      onRetry: () => _retry(context, ref),
+    );
+  }
+
+  /// Outgoing message that is still sending or failed.
+  ///
+  /// Uploads get the WhatsApp control centred on the media: a progress ring
+  /// with ✕ to stop it, then an upload arrow to send it again. A voice note
+  /// carries it in place of its play button instead (see the audio case in
+  /// the media preview). Text, locations and contact cards keep the error
+  /// scrim with a Retry pill once they fail.
+  Widget _buildStatusOverlay(BuildContext context, WidgetRef ref, String type) {
+    if (_isUpload(type)) {
+      if (type == 'audio') return const SizedBox.shrink();
+
+      final control = _uploadControl(context, ref);
+      if (control == null) return const SizedBox.shrink();
+
+      return Positioned.fill(child: Center(child: control));
+    }
+
     if (!isFailed) return const SizedBox.shrink();
 
     return Positioned.fill(
@@ -632,52 +674,19 @@ class ChatMessageItem extends ConsumerWidget {
   }
 
   Future<void> _retry(BuildContext context, WidgetRef ref) async {
-    final chatRepo = ref.read(chatRepositoryProvider);
-    final org = ref.read(organizationProvider);
-    final orgId = org?.id ?? 0;
-    final localPath =
-        LocalMediaManager.resolve(metadata['_localFilePath'] as String?);
-    final type = metadata['type'] ?? 'text';
-    final mediaMime = message.media?.type ?? '';
-    final isMediaMessage = localPath != null ||
-        message.mediaId != null ||
-        mediaMime.startsWith('audio/') ||
-        mediaMime.startsWith('image/') ||
-        mediaMime.startsWith('video/') ||
-        ['image', 'audio', 'video', 'document'].contains(type);
+    final sent = await ref
+        .read(chatRepositoryProvider)
+        .resend(message, contactUuid: contactUuid);
 
-    if (isMediaMessage) {
-      if (localPath == null || !File(localPath).existsSync()) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('chat.media.retry_unavailable'.tr()),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-        return;
-      }
-      final file = File(localPath);
-      unawaited(chatRepo.sendMediaMessage(
-        contactUuid,
-        file,
-        caption: metadata[type]?['caption'] as String?,
-        contactId: message.contactId,
-        orgId: orgId,
-        tempId: message.id, // reuse the same temp row
-      ));
-    } else {
-      // Text retry
-      final body = metadata['text']?['body'] as String? ?? '';
-      if (body.trim().isEmpty) return;
-      unawaited(chatRepo.sendTextMessage(
-        contactUuid,
-        body,
-        contactId: message.contactId,
-        orgId: orgId,
-        tempId: message.id,
-      ));
+    // Only a media message can be left with nothing to resend: its local
+    // file is gone.
+    if (!sent && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('chat.media.retry_unavailable'.tr()),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -748,6 +757,9 @@ class ChatMessageItem extends ConsumerWidget {
 
     final footer = _buildFooter(context);
 
+    // Only a plain text bubble offers Copy.
+    final copyText = isTextOnly && mainText.trim().isNotEmpty ? mainText : null;
+
     // Anchor key for the floating reaction picker so it can be positioned
     // directly above the long-pressed bubble (WhatsApp-style).
     final bubbleKey = GlobalKey();
@@ -771,11 +783,16 @@ class ChatMessageItem extends ConsumerWidget {
                     ? () => MessageInfoSheet.show(context, message)
                     : null,
                 child: GestureDetector(
-                // Long-press any sent or delivered message that has a wamId
-                // to react to it. Pending/failed outbound bubbles have no
-                // wamId yet so they're naturally excluded.
-                onLongPress: message.wamId != null
-                    ? () => _showReactionPicker(context, ref, bubbleKey)
+                // Long-press opens reactions above the bubble (only once it
+                // has a wamId — pending and failed ones cannot be reacted
+                // to) and the message's actions below it.
+                onLongPress: message.wamId != null || copyText != null
+                    ? () => _showMessageMenu(
+                          context,
+                          ref,
+                          bubbleKey,
+                          copyText: copyText,
+                        )
                     : null,
                 child: ConstrainedBox(
                   key: bubbleKey,
@@ -834,7 +851,7 @@ class ChatMessageItem extends ConsumerWidget {
                             ],
                           ),
                         ),
-                      if (type != 'unsupported' && hasMedia) _buildMediaPreview(context, type),
+                      if (type != 'unsupported' && hasMedia) _buildMediaPreview(context, ref, type),
                       if (type != 'unsupported' && isLocation) _buildLocationPreview(context),
                       if (type != 'unsupported' && isContacts) _buildContactsPreview(context, ref),
                       if (isTextOnly)
@@ -994,7 +1011,7 @@ class ChatMessageItem extends ConsumerWidget {
                   ),
                 ),
               // Status overlay (spinner / error+retry) for outbound pending/failed
-              if (!isInbound) _buildStatusOverlay(context, ref),
+              if (!isInbound) _buildStatusOverlay(context, ref, type),
               // Floating reaction pill — overlaps the bubble's bottom edge
               // on the outward side (left for inbound, right for outbound),
               // matching WhatsApp. Holds every reactor's emoji side-by-side.
@@ -1106,15 +1123,15 @@ class ChatMessageItem extends ConsumerWidget {
     );
   }
 
-  /// WhatsApp-style reaction picker. Shows a floating pill positioned just
-  /// above the long-pressed bubble with 6 quick emojis + a `+` button that
-  /// opens a full emoji sheet. The whole UI is rendered through an Overlay
-  /// (no modal bottom sheet) so it stays visually attached to the bubble.
-  Future<void> _showReactionPicker(
+  /// WhatsApp-style long-press menu, drawn in an Overlay so it stays
+  /// attached to the bubble: a reaction pill above it (6 quick emojis and a
+  /// `+` for the full sheet) and the message's actions below it.
+  Future<void> _showMessageMenu(
     BuildContext context,
     WidgetRef ref,
-    GlobalKey bubbleKey,
-  ) async {
+    GlobalKey bubbleKey, {
+    String? copyText,
+  }) async {
     HapticFeedback.selectionClick();
 
     final overlay = Overlay.of(context, rootOverlay: true);
@@ -1124,19 +1141,59 @@ class ChatMessageItem extends ConsumerWidget {
     final bubblePos = renderBox.localToGlobal(Offset.zero);
     final bubbleSize = renderBox.size;
     final screen = MediaQuery.of(context).size;
+    final safe = MediaQuery.of(context).padding;
+    final isInbound = message.type == 'inbound';
+
+    final canReact = message.wamId != null;
+    final actions = <_MessageAction>[
+      if (copyText != null)
+        _MessageAction(
+          icon: LucideIcons.copy,
+          label: 'chat.actions.copy'.tr(),
+          onTap: () async {
+            await Clipboard.setData(ClipboardData(text: copyText));
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('chat.actions.copied'.tr()),
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          },
+        ),
+    ];
+
+    if (!canReact && actions.isEmpty) return;
 
     // Pill width is ~ 6 * 44 + plus btn + padding ≈ 320. Clamp inside screen.
     const pillWidth = 320.0;
     const pillHeight = 56.0;
-    double left = bubblePos.dx + (bubbleSize.width / 2) - (pillWidth / 2);
-    left = left.clamp(8.0, screen.width - pillWidth - 8.0);
+    const actionsHeight = 48.0;
+    const gap = 8.0;
 
-    // Prefer placing the pill above the bubble; fall back to below if there
-    // isn't enough headroom (e.g. message at top of viewport).
-    double top = bubblePos.dy - pillHeight - 8;
-    if (top < MediaQuery.of(context).padding.top + 8) {
-      top = bubblePos.dy + bubbleSize.height + 8;
-    }
+    double pillLeft = bubblePos.dx + (bubbleSize.width / 2) - (pillWidth / 2);
+    pillLeft = pillLeft.clamp(8.0, screen.width - pillWidth - 8.0);
+
+    // Prefer the pill above the bubble; fall back to below if there isn't
+    // enough headroom (e.g. message at top of viewport).
+    double pillTop = bubblePos.dy - pillHeight - gap;
+    final pillBelow = pillTop < safe.top + gap;
+    if (pillBelow) pillTop = bubblePos.dy + bubbleSize.height + gap;
+
+    // Actions go under the bubble, or under the pill when that took the spot.
+    // A bubble near the bottom edge pulls them back up on screen.
+    double actionsTop = canReact && pillBelow
+        ? pillTop + pillHeight + gap
+        : bubblePos.dy + bubbleSize.height + gap;
+    final maxActionsTop = screen.height - safe.bottom - actionsHeight - gap;
+    if (actionsTop > maxActionsTop) actionsTop = maxActionsTop;
+
+    // Lined up with the bubble's outer edge, like the bubble itself.
+    final actionsLeft = isInbound ? bubblePos.dx.clamp(8.0, screen.width) : null;
+    final actionsRight = isInbound
+        ? null
+        : (screen.width - bubblePos.dx - bubbleSize.width).clamp(8.0, screen.width);
 
     final completer = Completer<String?>();
     late OverlayEntry entry;
@@ -1156,21 +1213,35 @@ class ChatMessageItem extends ConsumerWidget {
               onTap: () => close(null),
             ),
           ),
-          Positioned(
-            left: left,
-            top: top,
-            width: pillWidth,
-            child: _ReactionPill(
-              onPick: (emoji) => close(emoji),
-              onMore: () async {
-                close(null);
-                final picked = await _showFullEmojiSheet(context);
-                if (picked != null && picked.isNotEmpty) {
-                  await _dispatchReaction(context, ref, picked);
-                }
-              },
+          if (canReact)
+            Positioned(
+              left: pillLeft,
+              top: pillTop,
+              width: pillWidth,
+              child: _ReactionPill(
+                onPick: (emoji) => close(emoji),
+                onMore: () async {
+                  close(null);
+                  final picked = await _showFullEmojiSheet(context);
+                  if (picked != null && picked.isNotEmpty) {
+                    await _dispatchReaction(context, ref, picked);
+                  }
+                },
+              ),
             ),
-          ),
+          if (actions.isNotEmpty)
+            Positioned(
+              left: actionsLeft,
+              right: actionsRight,
+              top: actionsTop,
+              child: _MessageActionBar(
+                actions: actions,
+                onSelected: (action) {
+                  close(null);
+                  action.onTap();
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -1305,6 +1376,80 @@ class _ContactActionButton extends StatelessWidget {
 }
 
 /// Floating quick-reaction pill: 6 suggested emojis + a `+` button.
+/// One entry in the long-press action bar. Delete, reply and forward slot in
+/// here as they become possible.
+class _MessageAction {
+  const _MessageAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+}
+
+class _MessageActionBar extends StatelessWidget {
+  const _MessageActionBar({required this.actions, required this.onSelected});
+
+  final List<_MessageAction> actions;
+  final ValueChanged<_MessageAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = PiColors.of(context);
+
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      widthFactor: 1,
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: colors.surfaceRaised,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: PiPalette.ink900.withValues(alpha: 0.18),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final action in actions)
+              GestureDetector(
+                onTap: () => onSelected(action),
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(action.icon, size: 18, color: colors.textPrimary),
+                      const SizedBox(width: 8),
+                      Text(
+                        action.label,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: Sz.sp(context, 14),
+                          fontWeight: FontWeight.w600,
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ReactionPill extends StatelessWidget {
   const _ReactionPill({required this.onPick, required this.onMore});
   final ValueChanged<String> onPick;

@@ -69,6 +69,10 @@
         },
         "error": {
             "loading_messages": "خطأ في تحميل الرسائل: {error}"
+        },
+        "actions": {
+            "copy": "نسخ",
+            "copied": "تم النسخ"
         }
     },
     "new_chat": {

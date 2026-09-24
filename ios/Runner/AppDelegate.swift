@@ -38,6 +38,32 @@ import flutter_callkit_incoming
         AudioServicesPlaySystemSound(soundId)
         result(nil)
       }
+
+      // Background time for sends. iOS suspends the app seconds after it
+      // leaves the foreground, cutting an upload off mid-request; a
+      // background task asks for the time to finish it. Dart wraps each send
+      // in begin/end (lib/core/platform/background_task.dart).
+      FlutterMethodChannel(
+        name: "pichat/background_task",
+        binaryMessenger: controller.binaryMessenger
+      ).setMethodCallHandler { call, result in
+        switch call.method {
+        case "begin":
+          var taskId: UIBackgroundTaskIdentifier = .invalid
+          taskId = application.beginBackgroundTask(withName: "pichat.send") {
+            // Out of time: end it ourselves, or iOS kills the app.
+            application.endBackgroundTask(taskId)
+          }
+          result(taskId == .invalid ? nil : taskId.rawValue)
+        case "end":
+          if let raw = call.arguments as? Int {
+            application.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: raw))
+          }
+          result(nil)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
     }
 
     // Ask for standard remote-push permission so FCM can wake the app
