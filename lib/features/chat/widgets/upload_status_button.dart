@@ -55,8 +55,11 @@ class UploadStatusButton extends ConsumerWidget {
                     width: size - 6,
                     height: size - 6,
                     child: CircularProgressIndicator(
-                      // Spins until the first progress event arrives.
-                      value: progress == null || progress == 0
+                      // Spins before the first progress event, and again
+                      // once the bytes are all out: the server is still
+                      // passing the file to Meta, and a full ring standing
+                      // still looked like a stuck upload.
+                      value: progress == null || progress == 0 || progress >= 1
                           ? null
                           : progress,
                       strokeWidth: 2.5,

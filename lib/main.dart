@@ -1,4 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
+import 'package:go_router/go_router.dart';
+import 'package:pichat/features/share/share_intent_service.dart';
 import 'package:pichat/services/outbox_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -68,6 +70,9 @@ class _PiChatAppState extends ConsumerState<PiChatApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Shares from other apps: the one that launched us and any later ones.
+    ref.read(shareIntentServiceProvider).start();
+
     // Pick up sends a previous run left unfinished, once the session is back.
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) ref.read(outboxServiceProvider).sweep();
@@ -77,7 +82,33 @@ class _PiChatAppState extends ConsumerState<PiChatApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _watchedRouter?.routerDelegate.removeListener(_openPendingShare);
     super.dispose();
+  }
+
+  GoRouter? _watchedRouter;
+
+  /// Follow the current router — it is rebuilt when the session changes —
+  /// so a share can be opened as soon as the agent reaches the app proper.
+  void _watchRouter(GoRouter router) {
+    if (identical(router, _watchedRouter)) return;
+    _watchedRouter?.routerDelegate.removeListener(_openPendingShare);
+    _watchedRouter = router;
+    router.routerDelegate.addListener(_openPendingShare);
+  }
+
+  /// Open "Send to…" for a waiting share, but only once signed in and past
+  /// the splash, login and organisation screens; until then it waits.
+  void _openPendingShare() {
+    if (ref.read(pendingShareProvider) == null) return;
+
+    final router = _watchedRouter;
+    if (router == null) return;
+
+    final path = router.routerDelegate.currentConfiguration.uri.path;
+    if (!path.startsWith('/home')) return;
+
+    router.push('/share');
   }
 
   @override
@@ -117,13 +148,19 @@ class _PiChatAppState extends ConsumerState<PiChatApp>
       });
     }
 
+    final router = ref.watch(appRouterProvider);
+    _watchRouter(router);
+    ref.listen<SharedPayload?>(pendingShareProvider, (_, next) {
+      if (next != null) _openPendingShare();
+    });
+
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'PiChat',
       theme: ref.watch(lightThemeProvider),
       darkTheme: ref.watch(darkThemeProvider),
       themeMode: ref.watch(resolvedThemeModeProvider),
-      routerConfig: ref.watch(appRouterProvider),
+      routerConfig: router,
       locale: context.locale,
       supportedLocales: context.supportedLocales,
       localizationsDelegates: context.localizationDelegates,

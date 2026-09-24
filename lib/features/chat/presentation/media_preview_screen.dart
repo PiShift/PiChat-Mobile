@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:pdfx/pdfx.dart';
 import 'package:pichat/core/theme/app_theme.dart';
+import 'package:pichat/features/chat/widgets/file_type_badge.dart';
 
 /// WhatsApp-style media preview screen.
 ///
@@ -28,10 +30,111 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
   final TextEditingController _captionController = TextEditingController();
   bool _isSending = false;
 
+  /// Set for a PDF, so the agent reads what they are about to send instead
+  /// of just its file name.
+  PdfControllerPinch? _pdf;
+  int _page = 1;
+  int _pages = 0;
+
+  String get _fileName => widget.file.path.split('/').last;
+
+  String get _extension {
+    final name = _fileName;
+    return name.contains('.') ? name.split('.').last.toLowerCase() : '';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.isImage && _extension == 'pdf') {
+      _pdf = PdfControllerPinch(
+        document: PdfDocument.openFile(widget.file.path),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _captionController.dispose();
+    _pdf?.dispose();
     super.dispose();
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  /// Any file with no inline preview: its type, name and size.
+  Widget _buildFileCard() {
+    int? bytes;
+    try {
+      bytes = widget.file.lengthSync();
+    } catch (_) {}
+
+    final details = [
+      if (_pages > 0) '$_pages ${_pages == 1 ? 'page' : 'pages'}',
+      if (bytes != null) _formatSize(bytes),
+      if (_extension.isNotEmpty) _extension.toUpperCase(),
+    ].join(' • ');
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FileTypeBadge(extension: _extension, size: 72),
+            const SizedBox(height: 16),
+            Text(
+              _fileName,
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (details.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                details,
+                style: const TextStyle(color: Colors.white54, fontSize: 13),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreview() {
+    if (widget.isImage) {
+      return InteractiveViewer(
+        child: Center(
+          child: Image.file(widget.file, fit: BoxFit.contain),
+        ),
+      );
+    }
+
+    final pdf = _pdf;
+    if (pdf == null) return _buildFileCard();
+
+    return PdfViewPinch(
+      controller: pdf,
+      backgroundDecoration: const BoxDecoration(color: Colors.black),
+      onDocumentLoaded: (document) {
+        if (mounted) setState(() => _pages = document.pagesCount);
+      },
+      onPageChanged: (page) {
+        if (mounted) setState(() => _page = page);
+      },
+      // An encrypted PDF cannot be rendered here (pdfx on iOS); it still
+      // sends and opens fine elsewhere, so fall back to the file card.
+      builders: PdfViewPinchBuilders<DefaultBuilderOptions>(
+        options: const DefaultBuilderOptions(),
+        errorBuilder: (_, __) => _buildFileCard(),
+      ),
+    );
   }
 
   void _send() {
@@ -46,49 +149,34 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final fileName = widget.file.path.split('/').last;
+    final fileName = _fileName;
 
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: Text(
-          fileName,
-          style: const TextStyle(fontSize: 14, color: Colors.white70),
-          overflow: TextOverflow.ellipsis,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              fileName,
+              style: const TextStyle(fontSize: 14, color: Colors.white70),
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (_pdf != null && _pages > 0)
+              Text(
+                '$_page / $_pages',
+                style: const TextStyle(fontSize: 12, color: Colors.white38),
+              ),
+          ],
         ),
       ),
       body: Column(
         children: [
           // Preview area
-          Expanded(
-            child: widget.isImage
-                ? InteractiveViewer(
-                    child: Center(
-                      child: Image.file(
-                        widget.file,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  )
-                : Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.insert_drive_file,
-                            size: 80, color: Colors.white54),
-                        const SizedBox(height: 16),
-                        Text(
-                          fileName,
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 16),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-          ),
+          Expanded(child: _buildPreview()),
 
           // Caption + send row
           Container(

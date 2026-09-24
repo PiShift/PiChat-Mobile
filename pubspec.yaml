@@ -89,6 +89,7 @@ dependencies:
   # than handed to whatever viewer the device happens to have.
   archive: ^4.0.7
   audio_waveforms: ^2.0.2
+  receive_sharing_intent: 1.8.1
 
 dependency_overrides:
   # record 5.2.1 transitively pulls in the very old record_linux 0.7.2,

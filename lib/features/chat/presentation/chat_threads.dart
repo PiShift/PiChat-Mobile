@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:pichat/features/share/share_intent_service.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart' show SharedMediaType;
 import 'dart:ui' show ImageFilter;
 import 'dart:io';
 
@@ -56,7 +58,11 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 class ChatThread extends ConsumerStatefulWidget {
   final Contact contact;
-  const ChatThread({required this.contact, super.key});
+
+  /// Files or text shared into PiChat from another app, to be sent here.
+  final SharedPayload? initialShare;
+
+  const ChatThread({required this.contact, this.initialShare, super.key});
 
   @override
   ConsumerState<ChatThread> createState() => _ChatThreadState();
@@ -160,6 +166,7 @@ class _ChatThreadState extends ConsumerState<ChatThread>
         _activeContactNameNotifier.state = widget.contact.fullName?.trim();
       }
       _fetchNewMessages();
+      _takeShare();
     });
 
     _itemPositionsListener.itemPositions.addListener(_visibleItemsListener);
@@ -2823,6 +2830,46 @@ class _ChatThreadState extends ConsumerState<ChatThread>
 
     _isAtBottom = true;
     Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
+  }
+
+  /// Walk a share from another app through the same preview-and-caption
+  /// step as a file picked here, one file at a time. Shared text goes into
+  /// the message box for the agent to send or edit.
+  Future<void> _takeShare() async {
+    final share = widget.initialShare;
+    if (share == null || !mounted) return;
+
+    final text = share.text;
+    if (text != null && text.trim().isNotEmpty) {
+      _messageController.text = text;
+    }
+
+    if (share.files.isEmpty) return;
+
+    if (!_isWithin24HourWindow()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('share.window_expired'.tr())),
+      );
+      return;
+    }
+
+    _pauseSharedAudio();
+
+    for (final shared in share.files) {
+      if (!mounted) return;
+      final file = File(shared.path);
+      if (!file.existsSync()) continue;
+
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MediaPreviewScreen(
+            file: file,
+            isImage: shared.type == SharedMediaType.image,
+            onSend: (file, caption) => _sendMediaFile(file, caption: caption),
+          ),
+        ),
+      );
+    }
   }
 
   /// Copy a picked file into our own media tree before it is sent.

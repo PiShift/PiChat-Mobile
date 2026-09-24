@@ -16,6 +16,7 @@ import 'package:pichat/features/calls/presentation/outbound_call_screen.dart';
 import 'package:pichat/features/chat/presentation/chat_screen.dart';
 import 'package:pichat/features/chat/presentation/chat_threads.dart';
 import 'package:pichat/features/chat/presentation/new_chat_screen.dart';
+import 'package:pichat/features/share/share_target_screen.dart';
 import 'package:pichat/features/home/presentation/home_screen.dart';
 import 'package:pichat/features/select_organization/presentation/select_org_screen.dart';
 import 'package:pichat/features/labels/presentation/labels_screen.dart';
@@ -103,6 +104,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const LabelsScreen(),
           ),
           GoRoute(
+            path: '/share',
+            builder: (context, state) => const ShareTargetScreen(),
+          ),
+          GoRoute(
             path: '/home/chats/new',
             builder: (context, state) => const NewChatScreen(),
           ),
@@ -115,11 +120,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               // cast turned that into "Null is not a subtype of Contact" and
               // took the whole screen down; returning to the list is the
               // recoverable answer.
-              final contact = state.extra;
+              final extra = state.extra;
 
-              if (contact is! Contact) return const _ChatTargetLost();
+              // Opened from the share sheet: the thread takes the shared
+              // files or text through its own preview-and-send step.
+              if (extra is ShareToThread) {
+                return ChatThread(
+                  contact: extra.contact,
+                  initialShare: extra.payload,
+                );
+              }
 
-              return ChatThread(contact: contact);
+              if (extra is! Contact) return const _ChatTargetLost();
+
+              return ChatThread(contact: extra);
             },
           ),
           GoRoute(

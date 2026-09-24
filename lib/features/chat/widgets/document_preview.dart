@@ -23,12 +23,18 @@ class DocumentPreview extends ConsumerWidget {
   final String contactId;
   final String? metaId;
 
+  /// The upload control of an outgoing document that is still sending or
+  /// failed. Sits on the page preview of a PDF, in place of the type badge
+  /// otherwise.
+  final Widget? uploadControl;
+
   const DocumentPreview({
     required this.media,
     required this.mediaId,
     required this.mediaType,
     required this.contactId,
     this.metaId,
+    this.uploadControl,
     Key? key,
   }) : super(key: key);
 
@@ -264,6 +270,8 @@ class DocumentPreview extends ConsumerWidget {
             else
               _buildPlaceholder(colors),
 
+            if (uploadControl != null) Center(child: uploadControl),
+
             /*
                * Before the file is here there is nothing to preview: unlike the
                * WhatsApp client, which renders the thumbnail on the sender's
@@ -271,7 +279,7 @@ class DocumentPreview extends ConsumerWidget {
                * only the file id. So the placeholder carries the download
                * affordance instead of a blurred page.
                */
-            if (!isAlreadyDownloaded)
+            if (!isAlreadyDownloaded && uploadControl == null)
               Center(
                 child: isDownloading
                     ? Container(
@@ -384,7 +392,10 @@ class DocumentPreview extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       child: Row(
         children: [
-          FileTypeBadge(extension: _typeLabel, size: 26),
+          if (uploadControl != null && !_isPdf)
+            SizedBox(width: 36, height: 36, child: uploadControl)
+          else
+            FileTypeBadge(extension: _typeLabel, size: 26),
           const SizedBox(width: 9),
           Expanded(
             child: Column(

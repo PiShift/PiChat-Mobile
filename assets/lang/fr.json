@@ -294,5 +294,13 @@
             "failed": "Échec",
             "unknown": "Inconnu"
         }
+    },
+    "share": {
+        "title": "Envoyer à…",
+        "search_hint": "Rechercher un nom ou un numéro",
+        "recent": "Discussions récentes",
+        "new_number": "Écrire au {number}",
+        "files_count": "{count} fichiers",
+        "window_expired": "La fenêtre de 24 heures avec ce contact est fermée : impossible d’envoyer des fichiers. Utilisez un modèle."
     }
 }

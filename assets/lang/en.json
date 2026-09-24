@@ -297,5 +297,13 @@
             "failed": "Failed",
             "unknown": "Unknown"
         }
+    },
+    "share": {
+        "title": "Send to…",
+        "search_hint": "Search name or number",
+        "recent": "Recent chats",
+        "new_number": "Message {number}",
+        "files_count": "{count} files",
+        "window_expired": "The 24-hour window with this contact is closed, so files can’t be sent. Use a template instead."
     }
 }

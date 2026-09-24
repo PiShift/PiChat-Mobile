@@ -170,33 +170,48 @@ class ChatMessageItem extends ConsumerWidget {
       case 'docx':
       case 'document':
       default:
-        // Pending/failed: show file name placeholder
+        // Pending/failed: the same card a sent document gets, read from the
+        // local file, so the bubble does not change shape once it is sent.
         if (localPath != null && message.media == null) {
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(LucideIcons.fileText, size: 32, color: PiColors.of(context).textSecondary),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    localPath.split('/').last,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: Sz.sp(context, 13),
-                      color: PiColors.of(context).textPrimary,
-                    ),
-                  ),
-                ),
-              ],
+          final name = localPath.split('/').last;
+          int? bytes;
+          try {
+            bytes = File(localPath).lengthSync();
+          } catch (_) {}
+
+          return DocumentPreview(
+            media: ChatMedia(
+              id: -message.id,
+              name: name,
+              path: localPath,
+              location: 'local',
+              size: bytes?.toString(),
             ),
+            mediaId: 'local-${message.id}',
+            mediaType: name.contains('.') ? name.split('.').last : mediaType,
+            contactId: message.contactId.toString(),
+            uploadControl: _uploadControl(context, ref, size: 44, onMedia: false),
           );
         }
         if (message.media == null) return const SizedBox.shrink();
+        final sentFromHere = localPath != null && File(localPath).existsSync();
         return DocumentPreview(
-          media: message.media!,
+          // A document sent from this phone is already here: preview it from
+          // the local copy rather than offering to download it again.
+          media: sentFromHere
+              ? ChatMedia(
+                  id: message.media!.id,
+                  mediaId: message.media!.mediaId,
+                  metaId: message.media!.metaId,
+                  name: message.media!.name,
+                  path: localPath,
+                  metaUrl: message.media!.metaUrl,
+                  location: 'local',
+                  type: message.media!.type,
+                  size: message.media!.size,
+                  createdAt: message.media!.createdAt,
+                )
+              : message.media!,
           mediaId: message.media!.id.toString(),
           metaId: message.media!.metaId,
           mediaType: mediaType,
@@ -580,7 +595,8 @@ class ChatMessageItem extends ConsumerWidget {
   /// scrim with a Retry pill once they fail.
   Widget _buildStatusOverlay(BuildContext context, WidgetRef ref, String type) {
     if (_isUpload(type)) {
-      if (type == 'audio') return const SizedBox.shrink();
+      // Voice notes and documents carry the control inside their own card.
+      if (type == 'audio' || type == 'document') return const SizedBox.shrink();
 
       final control = _uploadControl(context, ref);
       if (control == null) return const SizedBox.shrink();
